@@ -11,7 +11,9 @@ import mujoco
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from convoy import CargoConvoy, DT, HELD_OUT, PathPace, SLIDER_LIMIT, SPEED_SCENARIOS, SWEEP_MAX_SPEED, XML, geometric_action
+from config import DT, HELD_OUT, SLIDER_LIMIT, SPEED_SCENARIOS, SWEEP_MAX_SPEED, XML
+from control import geometric_action
+from environment import CargoConvoy
 
 WIDTH, HEIGHT = 1440, 810
 OUTPUT = Path(__file__).resolve().parents[1] / 'runs' / 'render'
@@ -153,7 +155,7 @@ def annotate(rgb, env, fonts, controller_name, playback):
     return Image.alpha_composite(frame.convert('RGBA'), overlay).convert('RGB')
 
 
-def render(destination, movie, policy_path, playback, speed_limit=None, course='475kg-crest', paced=False):
+def render(destination, movie, policy_path, playback, speed_limit=None, course='475kg-crest'):
     controller_name = 'Geometric controller'
     name = 'convoy-crest'
     policy = None
@@ -166,22 +168,17 @@ def render(destination, movie, policy_path, playback, speed_limit=None, course='
         controller_name = 'Trained PPO controller'
         name = 'convoy-ppo-crest'
     inputs = policy.observation_space.shape[0] if policy is not None else None
-    speed_conditioned = inputs in (29, 35) or speed_limit is not None
+    speed_conditioned = inputs in (29, 35, 41) or speed_limit is not None
     if speed_conditioned and inputs == 28:
         raise ValueError('Use a speed-conditioned checkpoint with --speed-limit.')
-    if paced and not speed_conditioned:
-        raise ValueError('--paced requires a speed-conditioned checkpoint or --speed-limit.')
     scenarios = SPEED_SCENARIOS if speed_conditioned else HELD_OUT
     scenario = next(s for s in scenarios if s.name == course)
     if speed_conditioned:
         scenario = replace(scenario, speed=speed_limit or SWEEP_MAX_SPEED)
         name = {'convoy-crest': 'convoy-speed-reference', 'convoy-ppo-crest': 'convoy-speed-ppo'}[name]
     env = CargoConvoy(scenario, model=visual_model(), speed_conditioned=speed_conditioned,
-                      delivery=inputs == 35)
+                      delivery=inputs in (35, 41), adaptive_speed=inputs == 41)
     obs, _ = env.reset(seed=1000)
-    pace = PathPace(env.route, env.speed_limit) if paced else None
-    if paced:
-        controller_name += ' + pacing'
     terrain = env.model.hfield_data[:len(env.terrain_x)] * env.terrain_scale
     camera = mujoco.MjvCamera()
     camera.azimuth, camera.elevation, camera.distance = 124, -18, 11.6
@@ -215,15 +212,12 @@ def render(destination, movie, policy_path, playback, speed_limit=None, course='
                         snapshot = (distance_to_crest, frame)
                     if writer:
                         writer.stdin.write(frame.tobytes())
-                limit = pace.limit(env) if pace else env.speed_limit
                 if policy is not None:
                     action = policy.predict(obs, deterministic=True)[0]
                 elif speed_conditioned:
                     action = geometric_action(obs, env.speed_limit, speed_limit=env.speed_limit)
                 else:
                     action = geometric_action(obs)
-                if pace:
-                    action = pace.apply(action, limit)
                 obs, _, terminal, timeout, info = env.step(action)
                 if terminal or timeout:
                     break
@@ -246,7 +240,6 @@ if __name__ == '__main__':
     parser.add_argument('--playback', type=float, default=2, help='video playback multiplier')
     parser.add_argument('--speed-limit', type=float, help='command ceiling for the 60 m crest scenario')
     parser.add_argument('--course', choices=[s.name for s in SPEED_SCENARIOS], default='475kg-crest')
-    parser.add_argument('--paced', action='store_true', help='apply the benchmark curvature-based speed envelope')
     args = parser.parse_args()
     if not np.isfinite(args.playback) or args.playback <= 0:
         parser.error('--playback must be a positive number')
@@ -254,4 +247,4 @@ if __name__ == '__main__':
         parser.error(f'--speed-limit must be between 0.5 and {SWEEP_MAX_SPEED} m/s')
     args.out.mkdir(parents=True, exist_ok=True)
     render(args.out, movie=not args.still_only, policy_path=args.model, playback=args.playback,
-           speed_limit=args.speed_limit, course=args.course, paced=args.paced)
+           speed_limit=args.speed_limit, course=args.course)
