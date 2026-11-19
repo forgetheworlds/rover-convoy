@@ -21,7 +21,7 @@ class Scenario:
     figure8: bool = False
     distance: float = 12.0
     crest_x: float = 14.0
-    speed: float = MAX_SPEED
+    speed: float = 0.75  # Original field-trial maximum; default scenario speed
 
 @dataclass(frozen=True)
 class RoverCommand:
