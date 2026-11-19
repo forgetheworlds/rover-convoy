@@ -1,0 +1,168 @@
+<mujoco model="two-rover cargo convoy">
+  <compiler angle="radian" autolimits="true" />
+  <option timestep="0.01" integrator="implicitfast" iterations="24" tolerance="1e-8" />
+  <visual>
+    <global azimuth="135" elevation="-27" offwidth="1280" offheight="720" />
+    <headlight ambient="0.44 0.46 0.50" />
+  </visual>
+  <default>
+    <default class="tire">
+      <geom type="cylinder" quat="0.70710678 0.70710678 0 0" size="0.3815 0.115" mass="20"
+            contype="2" conaffinity="1" friction="0.84 0.008 0.0002"
+            rgba="0.16 0.18 0.21 1" condim="3" />
+    </default>
+  </default>
+  <asset>
+    <hfield name="terrain_height" nrow="181" ncol="341" size="85 45 5 1" />
+  </asset>
+  <worldbody>
+    <light pos="4 -3 7" dir="-0.25 0.3 -1" directional="true" />
+    <geom name="ground" type="hfield" hfield="terrain_height" contype="1" conaffinity="6"
+          friction="0.22 0.006 0.0001" rgba="0.24 0.28 0.31 1" />
+
+    <body name="lead" pos="4.15 0 0.63">
+      <freejoint name="lead_free" />
+      <geom name="lead_chassis" type="box" size="1.42 0.55 0.20"
+            mass="666" rgba="0.16 0.48 0.65 1" contype="4" conaffinity="4" />
+
+      <!-- Two front bearings plus a turntable are represented by yaw and pitch hinges. -->
+      <body name="front_turntable" pos="0 0 0.27">
+        <joint name="cargo_yaw" type="hinge" axis="0 0 1" damping="12" />
+        <inertial pos="0 0 0" mass="4" diaginertia="0.2 0.2 0.2" />
+        <body name="cargo">
+          <joint name="cargo_pitch" type="hinge" axis="0 1 0" damping="20" />
+          <geom name="payload" type="cylinder" pos="-2.075 0 0.82" size="0.68 2.7375" quat="0.70710678 0 0.70710678 0"
+                mass="475" rgba="0.86 0.55 0.18 1" contype="4" conaffinity="5" />
+          <geom name="beam_rail" type="capsule" fromto="-4.63 0 0 -3.63 0 0" size="0.07"
+                mass="1" rgba="0.62 0.67 0.70 1" contype="0" conaffinity="0" />
+          <body name="rear_carriage" pos="-4.15 0 0">
+            <joint name="slider" type="slide" axis="1 0 0" range="-0.50 0.50"
+                   damping="28" armature="1" />
+            <geom type="sphere" size="0.12" mass="5" rgba="0.60 0.67 0.75 1"
+                  contype="0" conaffinity="0" />
+            <site name="carriage_pin" size="0.05" />
+          </body>
+        </body>
+      </body>
+
+      <body name="lead_front_left_knuckle" pos="1.22 0.825 -0.24">
+        <joint name="lead_front_left_steer" type="hinge" axis="0 0 1" range="-0.50 0.50"
+               damping="32" armature="2" />
+        <inertial pos="0 0 0" mass="2" diaginertia="0.03 0.03 0.03" />
+        <body name="lead_front_left_wheel">
+          <joint name="lead_front_left_spin" type="hinge" axis="0 1 0" damping="0.35" armature="0.8" />
+          <geom name="lead_front_left_tire" class="tire" />
+        </body>
+      </body>
+      <body name="lead_left_bogie" pos="-0.61 0.825 -0.24">
+        <joint name="lead_left_bogie_pitch" type="hinge" axis="0 1 0" range="-0.37 0.37"
+               damping="60" armature="2" />
+        <inertial pos="0 0 0" mass="5" diaginertia="0.4 0.4 0.4" />
+        <body name="lead_middle_left_wheel" pos="0.61 0 0">
+          <joint name="lead_middle_left_spin" type="hinge" axis="0 1 0" damping="0.35" armature="0.8" />
+          <geom name="lead_middle_left_tire" class="tire" />
+        </body>
+        <body name="lead_rear_left_wheel" pos="-0.61 0 0">
+          <joint name="lead_rear_left_spin" type="hinge" axis="0 1 0" damping="0.35" armature="0.8" />
+          <geom name="lead_rear_left_tire" class="tire" />
+        </body>
+      </body>
+      <body name="lead_front_right_knuckle" pos="1.22 -0.825 -0.24">
+        <joint name="lead_front_right_steer" type="hinge" axis="0 0 1" range="-0.50 0.50"
+               damping="32" armature="2" />
+        <inertial pos="0 0 0" mass="2" diaginertia="0.03 0.03 0.03" />
+        <body name="lead_front_right_wheel">
+          <joint name="lead_front_right_spin" type="hinge" axis="0 1 0" damping="0.35" armature="0.8" />
+          <geom name="lead_front_right_tire" class="tire" />
+        </body>
+      </body>
+      <body name="lead_right_bogie" pos="-0.61 -0.825 -0.24">
+        <joint name="lead_right_bogie_pitch" type="hinge" axis="0 1 0" range="-0.37 0.37"
+               damping="60" armature="2" />
+        <inertial pos="0 0 0" mass="5" diaginertia="0.4 0.4 0.4" />
+        <body name="lead_middle_right_wheel" pos="0.61 0 0">
+          <joint name="lead_middle_right_spin" type="hinge" axis="0 1 0" damping="0.35" armature="0.8" />
+          <geom name="lead_middle_right_tire" class="tire" />
+        </body>
+        <body name="lead_rear_right_wheel" pos="-0.61 0 0">
+          <joint name="lead_rear_right_spin" type="hinge" axis="0 1 0" damping="0.35" armature="0.8" />
+          <geom name="lead_rear_right_tire" class="tire" />
+        </body>
+      </body>
+    </body>
+    <body name="follow" pos="0 0 0.63">
+      <freejoint name="follow_free" />
+      <geom name="follow_chassis" type="box" size="1.42 0.55 0.20"
+            mass="666" rgba="0.23 0.61 0.52 1" contype="4" conaffinity="4" />
+
+      <!-- This spherical connection carries the rear load while the carriage slides. -->
+      <site name="rear_socket" pos="0 0 0.27" size="0.05" />
+
+      <body name="follow_front_left_knuckle" pos="1.22 0.825 -0.24">
+        <joint name="follow_front_left_steer" type="hinge" axis="0 0 1" range="-0.50 0.50"
+               damping="32" armature="2" />
+        <inertial pos="0 0 0" mass="2" diaginertia="0.03 0.03 0.03" />
+        <body name="follow_front_left_wheel">
+          <joint name="follow_front_left_spin" type="hinge" axis="0 1 0" damping="0.35" armature="0.8" />
+          <geom name="follow_front_left_tire" class="tire" />
+        </body>
+      </body>
+      <body name="follow_left_bogie" pos="-0.61 0.825 -0.24">
+        <joint name="follow_left_bogie_pitch" type="hinge" axis="0 1 0" range="-0.37 0.37"
+               damping="60" armature="2" />
+        <inertial pos="0 0 0" mass="5" diaginertia="0.4 0.4 0.4" />
+        <body name="follow_middle_left_wheel" pos="0.61 0 0">
+          <joint name="follow_middle_left_spin" type="hinge" axis="0 1 0" damping="0.35" armature="0.8" />
+          <geom name="follow_middle_left_tire" class="tire" />
+        </body>
+        <body name="follow_rear_left_wheel" pos="-0.61 0 0">
+          <joint name="follow_rear_left_spin" type="hinge" axis="0 1 0" damping="0.35" armature="0.8" />
+          <geom name="follow_rear_left_tire" class="tire" />
+        </body>
+      </body>
+      <body name="follow_front_right_knuckle" pos="1.22 -0.825 -0.24">
+        <joint name="follow_front_right_steer" type="hinge" axis="0 0 1" range="-0.50 0.50"
+               damping="32" armature="2" />
+        <inertial pos="0 0 0" mass="2" diaginertia="0.03 0.03 0.03" />
+        <body name="follow_front_right_wheel">
+          <joint name="follow_front_right_spin" type="hinge" axis="0 1 0" damping="0.35" armature="0.8" />
+          <geom name="follow_front_right_tire" class="tire" />
+        </body>
+      </body>
+      <body name="follow_right_bogie" pos="-0.61 -0.825 -0.24">
+        <joint name="follow_right_bogie_pitch" type="hinge" axis="0 1 0" range="-0.37 0.37"
+               damping="60" armature="2" />
+        <inertial pos="0 0 0" mass="5" diaginertia="0.4 0.4 0.4" />
+        <body name="follow_middle_right_wheel" pos="0.61 0 0">
+          <joint name="follow_middle_right_spin" type="hinge" axis="0 1 0" damping="0.35" armature="0.8" />
+          <geom name="follow_middle_right_tire" class="tire" />
+        </body>
+        <body name="follow_rear_right_wheel" pos="-0.61 0 0">
+          <joint name="follow_rear_right_spin" type="hinge" axis="0 1 0" damping="0.35" armature="0.8" />
+          <geom name="follow_rear_right_tire" class="tire" />
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <equality>
+    <connect name="rear_ball_joint" site1="carriage_pin" site2="rear_socket" solref="0.025 1" />
+  </equality>
+  <actuator>
+    <velocity name="lead_front_left_drive" joint="lead_front_left_spin" kv="380" ctrlrange="-2.8 2.8" forcerange="-180 180" />
+    <velocity name="lead_front_right_drive" joint="lead_front_right_spin" kv="380" ctrlrange="-2.8 2.8" forcerange="-180 180" />
+    <velocity name="lead_middle_left_drive" joint="lead_middle_left_spin" kv="380" ctrlrange="-2.8 2.8" forcerange="-180 180" />
+    <velocity name="lead_middle_right_drive" joint="lead_middle_right_spin" kv="380" ctrlrange="-2.8 2.8" forcerange="-180 180" />
+    <velocity name="lead_rear_left_drive" joint="lead_rear_left_spin" kv="380" ctrlrange="-2.8 2.8" forcerange="-180 180" />
+    <velocity name="lead_rear_right_drive" joint="lead_rear_right_spin" kv="380" ctrlrange="-2.8 2.8" forcerange="-180 180" />
+    <position name="lead_left_steer" joint="lead_front_left_steer" kp="1200" kv="95" ctrlrange="-0.5 0.5" forcerange="-260 260" />
+    <position name="lead_right_steer" joint="lead_front_right_steer" kp="1200" kv="95" ctrlrange="-0.5 0.5" forcerange="-260 260" />
+    <velocity name="follow_front_left_drive" joint="follow_front_left_spin" kv="380" ctrlrange="-2.8 2.8" forcerange="-180 180" />
+    <velocity name="follow_front_right_drive" joint="follow_front_right_spin" kv="380" ctrlrange="-2.8 2.8" forcerange="-180 180" />
+    <velocity name="follow_middle_left_drive" joint="follow_middle_left_spin" kv="380" ctrlrange="-2.8 2.8" forcerange="-180 180" />
+    <velocity name="follow_middle_right_drive" joint="follow_middle_right_spin" kv="380" ctrlrange="-2.8 2.8" forcerange="-180 180" />
+    <velocity name="follow_rear_left_drive" joint="follow_rear_left_spin" kv="380" ctrlrange="-2.8 2.8" forcerange="-180 180" />
+    <velocity name="follow_rear_right_drive" joint="follow_rear_right_spin" kv="380" ctrlrange="-2.8 2.8" forcerange="-180 180" />
+    <position name="follow_left_steer" joint="follow_front_left_steer" kp="1200" kv="95" ctrlrange="-0.5 0.5" forcerange="-260 260" />
+    <position name="follow_right_steer" joint="follow_front_right_steer" kp="1200" kv="95" ctrlrange="-0.5 0.5" forcerange="-260 260" />
+  </actuator>
+</mujoco>
