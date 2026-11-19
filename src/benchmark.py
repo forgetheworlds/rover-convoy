@@ -11,17 +11,15 @@ import numpy as np
 from stable_baselines3 import PPO
 import torch
 
-from convoy import (
-    CONDITIONED_CRUISE, CORRIDOR, DT, MAX_STEER, SPAN, SPEED_SCENARIOS, SLEW, WHEELBASE,
-    CargoConvoy, PathPace, angle_wrap, follower_references, projected_distance, route_poses,
+from config import (
+    CONDITIONED_CRUISE, CORRIDOR, DT, MAX_STEER, ROOT, SPAN, SPEED_SCENARIOS, SLEW, WHEELBASE,
 )
+from environment import CargoConvoy
+from routes import angle_wrap, follower_references, projected_distance, route_poses
 
 STAGES, STEP = 15, 0.25
 STEER_LAG = 0.7
 SPEEDS = (0.75, 1.5, 3.0)
-ROOT = Path(__file__).resolve().parents[1]
-
-
 def reference_progress(initial_speed, cruise):
     """Reference distance at each stage with a slew-feasible cruise ramp."""
     times = STEP * np.arange(1, STAGES + 1)
@@ -135,19 +133,16 @@ class DistributedMPC:
         return actions
 
 
-def run_episode(scenario, seed, policy, paced=False):
-    env = CargoConvoy(scenario, delivery=True)
+def run_episode(scenario, seed, policy):
+    env = CargoConvoy(scenario, delivery=True,
+                      adaptive_speed=policy is not None and policy.observation_space.shape == (41,))
     observation, _ = env.reset(seed=1000 + seed)
     mpc = DistributedMPC(scenario.speed) if policy is None else None
-    pace = PathPace(env.route, scenario.speed) if paced else None
     slide, cross, elapsed = [], [], []
     try:
         while True:
             start = perf_counter_ns()
-            limit = pace.limit(env) if pace else scenario.speed
-            action = (mpc(env, limit) if mpc else policy.predict(observation, deterministic=True)[0])
-            if pace:
-                action = pace.apply(action, limit)
+            action = (mpc(env, scenario.speed) if mpc else policy.predict(observation, deterministic=True)[0])
             elapsed.append((perf_counter_ns() - start) * 1e-6)
             observation, _, ended, timed_out, info = env.step(action)
             slide.append(info['slider'])
@@ -158,7 +153,7 @@ def run_episode(scenario, seed, policy, paced=False):
         env.close()
     lateral_rms = np.sqrt(np.mean(np.square(cross), axis=0))
     return dict(
-        course=scenario.name, speed=scenario.speed, seed=seed, paced=int(paced),
+        course=scenario.name, speed=scenario.speed, seed=seed,
         success=int(info['success']), stop=info['stop_reason'],
         progress_m=round(float(info['progress'][1]), 3), time_s=round(len(slide) * DT, 2),
         slide_rmse_cm=round(100 * np.sqrt(np.mean(np.square(slide))), 3),
@@ -174,7 +169,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--speed', action='append', type=float, choices=SPEEDS, help='repeat to choose speeds')
     parser.add_argument('--model', action='append', type=Path, help='repeat to compare additional PPO checkpoints')
-    parser.add_argument('--paced', action='store_true', help='apply the same curvature-based speed envelope to both controllers')
     parser.add_argument('--out', type=Path, default=ROOT / 'runs' / 'benchmark.csv')
     args = parser.parse_args()
     torch.set_num_threads(1)
@@ -187,7 +181,7 @@ def main():
             for scenario in SPEED_SCENARIOS:
                 for seed in (0, 1) if scenario.name == 'loose-crest' else (0,):
                     for label, policy in controllers:
-                        row = dict(controller=label, **run_episode(replace(scenario, speed=speed), seed, policy, args.paced))
+                        row = dict(controller=label, **run_episode(replace(scenario, speed=speed), seed, policy))
                         if writer is None:
                             writer = csv.DictWriter(file, fieldnames=list(row))
                             writer.writeheader()
