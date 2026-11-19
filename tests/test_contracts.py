@@ -104,5 +104,27 @@ class TestEnvironmentSmoke(unittest.TestCase):
             CargoConvoy(adaptive_speed=True)
 
 
+class TestEntryPoints(unittest.TestCase):
+    def test_command_line_help_imports(self):
+        import subprocess
+
+        root = Path(__file__).resolve().parents[1]
+        for script in ("convoy.py", "benchmark.py", "render_convoy.py"):
+            with self.subTest(script=script):
+                result = subprocess.run(
+                    [sys.executable, str(root / "src" / script), "--help"],
+                    capture_output=True, text=True, timeout=25,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_existing_delivery_checkpoint_contract(self):
+        from stable_baselines3 import PPO
+
+        path = Path(__file__).resolve().parents[1] / "assets" / "policy.zip"
+        policy = PPO.load(path, device="cpu")
+        self.assertEqual(policy.observation_space.shape, (OBSERVATIONS.delivery,))
+
+
+
 if __name__ == "__main__":
     unittest.main()
