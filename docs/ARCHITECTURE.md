@@ -90,4 +90,5 @@ real benchmark; there is no claim of identical throughput.
 python -m unittest discover -s tests -v
 python src/convoy.py evaluate --model assets/policy.zip --speed-sweep
 python src/benchmark.py --speed 0.75
+python src/profile_environment.py  # compare 35 vs. 41 feature step costs
 ```
