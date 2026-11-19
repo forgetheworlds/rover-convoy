@@ -7,7 +7,7 @@
 import argparse
 from pathlib import Path
 
-from config import SPEED
+from config import SPEED, ROOT
 from evaluation import evaluate
 from training import train
 
