@@ -16,7 +16,7 @@ receives route and state estimates; it returns high-level commands every 100 ms.
 | `src/training.py` | Actor imitation, transfer across input sizes, PPO training |
 | `src/evaluation.py` | Geometric-vs-PPO evaluation and CSV metrics |
 | `src/convoy.py` | Training/evaluation command-line interface |
-| `src/benchmark.py` | CasADi distributed MPC reconstruction and controller comparisons |
+| `src/benchmark.py` | Upstream D-MPC adapter and controller comparisons |
 | `src/render_convoy.py` | Offline video rendering and overlays |
 | `assets/convoy.xml` | Coupled rover physical plant: 12 wheels, front yaw/pitch mount, rear sliding ball joint |
 
@@ -71,12 +71,13 @@ slows down correctly. The committed `assets/policy.zip` is the previous
 
 ## Experimental caution
 
-The MPC is a reconstruction, **not** the authors' verified field controller.
-It uses different information from PPO, notably no direct slider observation.
-Compare completion, per-run failure reasons, slider RMSE, path deviation and
-compute time on identical scenario seeds. For a research-quality comparison,
-validate the reconstructed MPC against the released `vtr3` controller first
-and then evaluate multiple trained PPO seeds.
+The benchmark calls the pinned upstream VT&R3 leader and follower solvers through
+`src/vtr3_mpc.py`. The MuJoCo adapter supplies an acceleration-feasible route preview,
+synthetic pose estimates and shared actuator limits. The first command respects the
+100 ms simulation step. The field build and ROS/LiDAR pipeline remain unverified.
+D-MPC uses the pose-based gap while PPO receives a direct slider observation.
+Compare completion, failure reasons, slider RMSE, path deviation and compute time
+on identical scenario seeds.
 
 The goal of this refactor is readability and separation of responsibilities.
 The controller's hot path keeps arrays; dataclasses are only used for static
