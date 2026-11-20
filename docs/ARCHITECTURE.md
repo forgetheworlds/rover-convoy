@@ -93,3 +93,18 @@ python src/convoy.py evaluate --model assets/policy.zip --speed-sweep
 python src/benchmark.py --speed 0.75
 python src/profile_environment.py  # compare 35 vs. 41 feature step costs
 ```
+
+## Controller variants
+
+`ConvoyActors` composes separate leader and follower networks and a centralized
+value network. Static feature lists define which observation channels enter each
+actor. The actor modules emit two normalized commands each. Only the training
+critic reads the complete observation. The follower gets the leader's measured
+forward speed and yaw rate plus relative state and slider signals. The upstream
+D-MPC instead passes a predicted pose sequence.
+
+`ForecastSliderConvoy` adds an outward-motion training penalty using slider
+position and velocity. The PPO and SAC candidates and the two-actor policy
+train with the same reward. `experiment_suite.py` keeps selection on development
+courses separate from the reserved comparison. The two-lap case uses a local
+arclength hint for branch selection where the synthetic route crosses itself.

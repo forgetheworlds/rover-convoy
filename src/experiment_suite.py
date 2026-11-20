@@ -106,7 +106,7 @@ def main():
                 rows.append(r)
                 print(r, flush=True)
     with (args.out / f'{args.suite}.csv').open('w', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=list(rows[0]))
+        writer = csv.DictWriter(f, fieldnames=list(rows[0]), lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
 
