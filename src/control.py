@@ -19,4 +19,3 @@ def geometric_action(observation, cruise_speed=SPEED, *, speed_limit=None):
     speed_action = ((speeds - SPEED) / 0.50 if speed_limit is None
                     else speeds / speed_limit - CONDITIONED_CRUISE)
     return np.array([speed_action[0], steering[0], speed_action[1], steering[1]])
-

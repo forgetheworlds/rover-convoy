@@ -78,4 +78,3 @@ def follower_references(route, lead_xy, *, lead_distance_hint=None):
         tangent = dx * np.cos(poses[:, 2]) + dy * np.sin(poses[:, 2])
         distance += (separation - SPAN) * separation / np.maximum(tangent, 0.5)
     return route_poses(route, distance)
-

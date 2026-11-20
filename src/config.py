@@ -48,4 +48,3 @@ SPEED_SCENARIOS = (
 # Speed-conditioned training emphasizes the high-speed cornering problem.
 # Speed selection is a curriculum, NOT a speed constraint at control time.
 ADAPTIVE_SPEEDS = (0.75, 1.5, 2.5, 3.0, 3.0, 3.0)
-
