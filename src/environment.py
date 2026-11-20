@@ -17,6 +17,9 @@ from config import (
 from data import OBSERVATIONS, Scenario
 from routes import Route, angle_wrap
 
+DELIVERY_SLIDER_WEIGHT = 0.24
+SLIDER_TARGET = 0.10
+
 def convoy_reward(metrics, previous_progress, command_change, completed, failed, speed_limit=MAX_SPEED):
     """Trade elapsed time and tracking errors against distance delivered."""
     progress = np.mean(metrics['progress'] - previous_progress) / (speed_limit * DT)
@@ -30,13 +33,17 @@ def convoy_reward(metrics, previous_progress, command_change, completed, failed,
     return float(reward + 16 * completed - FAILURE_COST * failed)
 
 
-def delivery_reward(metrics, previous_progress, command_change, completed, failed, speed_limit):
+def delivery_reward(metrics, previous_progress, command_change, completed, failed, speed_limit,
+                    *, slider_weight=DELIVERY_SLIDER_WEIGHT, slider_tail_weight=0.0):
     """Reward deliveries that finish quickly with a centered, stable load."""
     progress = np.mean(metrics['progress'] - previous_progress) / (speed_limit * DT)
     slider_error = abs(metrics['slider'])
     cross_track = np.abs(metrics['lateral'])
     reward = progress - 0.32
-    reward -= 0.24 * (slider_error / 0.05) + 1.1 * (slider_error / SLIDER_LIMIT)**2
+    reward -= slider_weight * (slider_error / 0.05) + 1.1 * (slider_error / SLIDER_LIMIT)**2
+    if slider_tail_weight:
+        excess = max(0.0, slider_error - SLIDER_TARGET)
+        reward -= slider_tail_weight * (excess / SLIDER_TARGET)**2
     reward -= 3.4 * np.mean((cross_track / CORRIDOR)**2)
     reward -= 2.0 * np.mean((np.maximum(cross_track - 0.25, 0) / (CORRIDOR - 0.25))**2)
     reward -= 0.20 * (metrics['tilt'] / 0.25)**2
@@ -60,7 +67,10 @@ class CargoConvoy(gym.Env):
     action_space = gym.spaces.Box(-1.0, 1.0, (4,), np.float32)
     observation_space = gym.spaces.Box(-np.inf, np.inf, (28,), np.float32)
 
-    def __init__(self, scenario=None, *, model=None, speed_conditioned=False, delivery=False, adaptive_speed=False):
+    def __init__(self, scenario=None, *, model=None, speed_conditioned=False, delivery=False, adaptive_speed=False,
+                 slider_weight=DELIVERY_SLIDER_WEIGHT, slider_tail_weight=0.0):
+        self.slider_tail_weight = slider_tail_weight
+        self.slider_weight = slider_weight
         self.fixed_scenario = scenario
         if adaptive_speed and not delivery:
             raise ValueError('Adaptive speed observations require delivery=True')
@@ -267,8 +277,12 @@ class CargoConvoy(gym.Env):
         failed = bool(stop_reason)
         done = metrics['progress'][1] >= self.route.finish and not failed
         timeout = self.ticks >= self.max_steps and not (failed or done)
-        reward_fn = delivery_reward if self.delivery else convoy_reward
-        reward = reward_fn(metrics, previous_progress, change, done, failed or (self.delivery and timeout), self.speed_limit)
+        if self.delivery:
+            reward = delivery_reward(metrics, previous_progress, change, done, failed or timeout,
+                                     self.speed_limit, slider_weight=self.slider_weight,
+                                     slider_tail_weight=self.slider_tail_weight)
+        else:
+            reward = convoy_reward(metrics, previous_progress, change, done, failed, self.speed_limit)
         return observation, reward, bool(failed or done or (self.delivery and timeout)), timeout and not self.delivery, {
             'success': bool(done), 'constraint_violation': failed,
             'stop_reason': stop_reason or ('timeout' if timeout else ''), **metrics,

@@ -79,25 +79,32 @@ def train(args):
 
     def environment(rank):
         return lambda: Monitor(CargoConvoy(speed_conditioned=speed_conditioned,
-                                             delivery=args.delivery, adaptive_speed=args.adaptive_speed),
+                                             delivery=args.delivery, adaptive_speed=args.adaptive_speed,
+                                             slider_weight=args.slider_weight,
+                                             slider_tail_weight=args.slider_tail_weight),
                                filename=str(args.out / f'worker-{rank}') if args.delivery else None,
                                info_keywords=('success', 'stop_reason') if args.delivery else ())
 
     vectorize = SubprocVecEnv if args.workers > 2 else DummyVecEnv
     env = vectorize([environment(rank) for rank in range(args.workers)])
-    ppo = PPO('MlpPolicy', env, device='cpu', seed=args.seed, n_steps=512,
-              batch_size=256 if args.delivery else 128, n_epochs=6 if args.delivery else 8,
-              gamma=0.997 if args.delivery else 0.995,
-              learning_rate=(lambda remaining: 3e-5 + 1.2e-4 * remaining) if args.delivery else 1.5e-4,
-              policy_kwargs={'net_arch': {'pi': [64, 64], 'vf': [64, 64]}, 'log_std_init': -2.4},
-              verbose=1)
     try:
+        if args.resume:
+            ppo = PPO.load(args.resume, env=env, device='cpu', seed=args.seed,
+                           custom_objects={'learning_rate': 6e-5})
+            print(f'Resumed PPO at {ppo.num_timesteps} steps; slider weight {args.slider_weight:g}, tail weight {args.slider_tail_weight:g}.', flush=True)
+        else:
+            ppo = PPO('MlpPolicy', env, device='cpu', seed=args.seed, n_steps=512,
+                      batch_size=256 if args.delivery else 128, n_epochs=6 if args.delivery else 8,
+                      gamma=0.997 if args.delivery else 0.995,
+                      learning_rate=(lambda remaining: 3e-5 + 1.2e-4 * remaining) if args.delivery else 1.5e-4,
+                      policy_kwargs={'net_arch': {'pi': [64, 64], 'vf': [64, 64]}, 'log_std_init': -2.4},
+                      verbose=1)
         if args.initialize_from:
             initialize_actor(ppo, args.initialize_from)
-        elif not args.from_scratch:
+        elif not args.from_scratch and not args.resume:
             warm_start_policy(ppo, args.seed, speed_conditioned, args.delivery, args.adaptive_speed)
             ppo.save(args.out / 'warm-start')
-        ppo.learn(total_timesteps=args.steps,
+        ppo.learn(total_timesteps=args.steps, reset_num_timesteps=not args.resume,
                   log_interval=4 if args.delivery else 1,
                   callback=CheckpointCallback(save_freq=(65536 if args.delivery else 32768) // args.workers,
                                               save_path=args.out, name_prefix='interim'))

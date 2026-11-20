@@ -12,6 +12,7 @@ def angle_wrap(angle):
 
 class Route:
     def __init__(self, scenario):
+        self.figure8 = scenario.figure8
         if scenario.figure8:
             # Analytic proxy for the CSA repeated loop. Its lead-in is tangent to the crossing.
             t = np.linspace(0, 4 * np.pi, 12001)
@@ -53,9 +54,12 @@ def route_poses(route, distance):
                             for column in (*route.xy.T, route.yaw)])
 
 
-def projected_distance(route, xy):
-    """Closest arclength on the benchmark's forward, monotone-x path."""
-    distance = np.interp(xy[:, 0], route.xy[:, 0], route.s)
+def projected_distance(route, xy, *, hint=None):
+    """Project onto the path, using arclength to select the branch on a loop."""
+    if route.figure8 and hint is None:
+        raise ValueError('Figure-eight projection requires an arclength hint.')
+    distance = (np.asarray(hint).copy() if hint is not None
+                else np.interp(xy[:, 0], route.xy[:, 0], route.s))
     for _ in range(4):
         poses = route_poses(route, distance)
         dx, dy = (xy - poses[:, :2]).T
@@ -64,9 +68,9 @@ def projected_distance(route, xy):
     return distance
 
 
-def follower_references(route, lead_xy):
+def follower_references(route, lead_xy, *, lead_distance_hint=None):
     """Find a point on the path a nominal Euclidean chord behind each lead pose."""
-    distance = projected_distance(route, lead_xy) - SPAN
+    distance = projected_distance(route, lead_xy, hint=lead_distance_hint) - SPAN
     for _ in range(5):
         poses = route_poses(route, distance)
         dx, dy = (lead_xy - poses[:, :2]).T
