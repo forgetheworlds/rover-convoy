@@ -1,7 +1,6 @@
 """Render the MuJoCo convoy with a follow camera and a measured slider readout."""
 
 import argparse
-from dataclasses import replace
 from pathlib import Path
 import shutil
 import subprocess
@@ -11,9 +10,8 @@ import mujoco
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from config import DT, HELD_OUT, SLIDER_LIMIT, SPEED_SCENARIOS, SWEEP_MAX_SPEED, XML
-from control import geometric_action
-from environment import CargoConvoy
+from config import DT, FIELD, SLIDER_LIMIT, SPAN, XML
+from field_pair import OBS_SIZE, FieldPairEnv
 
 WIDTH, HEIGHT = 1440, 810
 OUTPUT = Path(__file__).resolve().parents[1] / 'runs' / 'render'
@@ -95,9 +93,12 @@ def visual_model():
     return mujoco.MjModel.from_xml_string(ET.tostring(xml, encoding='unicode'))
 
 
-def draw_path(scene, route, terrain_x, terrain_z):
+def draw_path(scene, route, terrain_x, terrain_z, *, reverse=False):
     """Place render-only dashes along the actual path reference."""
-    route_points = route.xy[::13]
+    route_points = route.xy[::13].copy()
+    if reverse:
+        route_points[:, 0] = SPAN - route_points[:, 0]
+        route_points[:, 1] *= -1
     empty = np.zeros(3)
     identity = np.eye(3).ravel()
     color = np.array([0.26, 0.84, 0.94, 1], dtype=np.float32)
@@ -155,96 +156,77 @@ def annotate(rgb, env, fonts, controller_name, playback):
     return Image.alpha_composite(frame.convert('RGBA'), overlay).convert('RGB')
 
 
-def render(destination, movie, policy_path, playback, speed_limit=None, course='475kg-crest'):
-    controller_name = 'Geometric controller'
-    name = 'convoy-crest'
-    policy = None
-    if policy_path is not None:
-        from stable_baselines3 import PPO
-        import torch
+def render(destination, policy_path, playback, scenario, reverse, seed, start, duration):
+    from stable_baselines3 import PPO
+    import torch
 
-        torch.set_num_threads(1)
-        policy = PPO.load(policy_path, device='cpu')
-        controller_name = 'Trained PPO controller'
-        name = 'convoy-ppo-crest'
-    inputs = policy.observation_space.shape[0] if policy is not None else None
-    speed_conditioned = inputs in (29, 35, 41) or speed_limit is not None
-    if speed_conditioned and inputs == 28:
-        raise ValueError('Use a speed-conditioned checkpoint with --speed-limit.')
-    scenarios = SPEED_SCENARIOS if speed_conditioned else HELD_OUT
-    scenario = next(s for s in scenarios if s.name == course)
-    if speed_conditioned:
-        scenario = replace(scenario, speed=speed_limit or SWEEP_MAX_SPEED)
-        name = {'convoy-crest': 'convoy-speed-reference', 'convoy-ppo-crest': 'convoy-speed-ppo'}[name]
-    env = CargoConvoy(scenario, model=visual_model(), speed_conditioned=speed_conditioned,
-                      delivery=inputs in (35, 41), adaptive_speed=inputs == 41)
-    obs, _ = env.reset(seed=1000)
-    terrain = env.model.hfield_data[:len(env.terrain_x)] * env.terrain_scale
+    torch.set_num_threads(1)
+    policy = PPO.load(policy_path, device='cpu')
+    env = FieldPairEnv(scenario, model=visual_model(), reverse=reverse,
+                       direction_input=policy.observation_space.shape[0] > OBS_SIZE)
+    base = env.env
+    obs, _ = env.reset(seed=seed)
+    terrain = base.model.hfield_data[:len(base.terrain_x)] * base.terrain_scale
     camera = mujoco.MjvCamera()
     camera.azimuth, camera.elevation, camera.distance = 124, -18, 11.6
     options = mujoco.MjvOption()
     options.sitegroup[:] = False
     fonts = load_fonts()
-    writer = None
-    snapshot = (float('inf'), None)
-    if movie:
-        ffmpeg = shutil.which('ffmpeg')
-        if ffmpeg is None:
-            raise RuntimeError('Install FFmpeg to render a video, or use --still-only.')
-        writer = subprocess.Popen([
-            ffmpeg, '-hide_banner', '-loglevel', 'error', '-y', '-f', 'rawvideo',
-            '-pixel_format', 'rgb24', '-video_size', f'{WIDTH}x{HEIGHT}', '-framerate',
-            f'{playback / DT:g}', '-i', '-', '-an', '-c:v', 'libx264',
-            '-preset', 'fast', '-crf', '19', '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
-            str(destination / f'{name}.mp4'),
-        ], stdin=subprocess.PIPE)
+    ffmpeg = shutil.which('ffmpeg')
+    if ffmpeg is None:
+        raise RuntimeError('FFmpeg is required to export a replay.')
+    direction = 'reverse' if reverse else 'forward'
+    writer = subprocess.Popen([
+        ffmpeg, '-hide_banner', '-loglevel', 'error', '-y', '-f', 'rawvideo',
+        '-pixel_format', 'rgb24', '-video_size', f'{WIDTH}x{HEIGHT}', '-framerate',
+        f'{playback / DT:g}', '-i', '-', '-an', '-c:v', 'libx264',
+        '-preset', 'fast', '-crf', '19', '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
+        str(destination / f'{direction}.mp4'),
+    ], stdin=subprocess.PIPE)
+    frames = 0
     try:
-        with mujoco.Renderer(env.model, height=HEIGHT, width=WIDTH) as renderer:
+        with mujoco.Renderer(base.model, height=HEIGHT, width=WIDTH) as renderer:
             while True:
-                lead_x = float(env.metrics['positions'][0, 0])
-                distance_to_crest = abs(lead_x - (scenario.crest_x - 0.5))
-                if writer or distance_to_crest < snapshot[0]:
-                    camera.lookat[:] = env.metrics['positions'].mean(axis=0) + [0.75, 0.0, 0.73]
-                    renderer.update_scene(env.data, camera=camera, scene_option=options)
-                    draw_path(renderer.scene, env.route, env.terrain_x, terrain)
-                    frame = annotate(renderer.render(), env, fonts, controller_name, playback)
-                    if distance_to_crest < snapshot[0]:
-                        snapshot = (distance_to_crest, frame)
-                    if writer:
-                        writer.stdin.write(frame.tobytes())
-                if policy is not None:
-                    action = policy.predict(obs, deterministic=True)[0]
-                elif speed_conditioned:
-                    action = geometric_action(obs, env.speed_limit, speed_limit=env.speed_limit)
-                else:
-                    action = geometric_action(obs)
+                elapsed = base.ticks * DT
+                if start <= elapsed < start + duration:
+                    position = base.metrics['positions'].mean(axis=0)
+                    if reverse:
+                        position[:2] = [SPAN - position[0], -position[1]]
+                    camera.lookat[:] = position + [0.75, 0.0, 0.73]
+                    renderer.update_scene(base.data, camera=camera, scene_option=options)
+                    draw_path(renderer.scene, base.route, base.terrain_x, terrain, reverse=reverse)
+                    frame = annotate(renderer.render(), base, fonts,
+                                     'Learned ' + direction, playback)
+                    writer.stdin.write(frame.tobytes())
+                    frames += 1
+                action = policy.predict(obs, deterministic=True)[0]
                 obs, _, terminal, timeout, info = env.step(action)
                 if terminal or timeout:
                     break
-        snapshot[1].save(destination / f'{name}.png')
-        print(f'Completed crest: {info["success"]}; {env.ticks * DT:.1f} simulated seconds; '
+        print(f'Completed {direction}: {info["success"]}; {base.ticks * DT:.1f} simulated seconds; '
               f'{info["stop_reason"] or "route completed"}.')
     finally:
-        if writer:
-            writer.stdin.close()
-            if writer.wait():
-                raise RuntimeError('FFmpeg failed to write the convoy video.')
+        writer.stdin.close()
+        status = writer.wait()
         env.close()
+        if status or not frames:
+            raise RuntimeError('The requested replay window could not be exported.')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--out', type=Path, default=OUTPUT)
-    parser.add_argument('--still-only', action='store_true')
-    parser.add_argument('--model', type=Path, help='PPO checkpoint to run in the demonstration')
-    parser.add_argument('--playback', type=float, default=2, help='video playback multiplier')
-    parser.add_argument('--speed-limit', type=float, help='command ceiling for the 60 m crest scenario')
-    parser.add_argument('--course', choices=[s.name for s in SPEED_SCENARIOS], default='475kg-crest')
+    parser.add_argument('--model', type=Path, required=True)
+    parser.add_argument('--course', choices=[s.name for s in FIELD], default=FIELD[0].name)
+    parser.add_argument('--reverse', action='store_true')
+    parser.add_argument('--seed', type=int, default=1071)
+    parser.add_argument('--playback', type=float, default=2)
+    parser.add_argument('--from-seconds', type=float, default=0)
+    parser.add_argument('--clip-seconds', type=float, default=16)
     args = parser.parse_args()
-    if not np.isfinite(args.playback) or args.playback <= 0:
-        parser.error('--playback must be a positive number')
-    if args.speed_limit is not None and not 0.5 <= args.speed_limit <= SWEEP_MAX_SPEED:
-        parser.error(f'--speed-limit must be between 0.5 and {SWEEP_MAX_SPEED} m/s')
+    if args.playback <= 0 or args.from_seconds < 0 or args.clip_seconds <= 0:
+        parser.error('Use a positive playback rate and clip duration, and a nonnegative start.')
     args.out.mkdir(parents=True, exist_ok=True)
-    render(args.out, movie=not args.still_only, policy_path=args.model, playback=args.playback,
-           speed_limit=args.speed_limit, course=args.course)
+    scenario = next(s for s in FIELD if s.name == args.course)
+    render(args.out, args.model, args.playback, scenario, args.reverse, args.seed,
+           args.from_seconds, args.clip_seconds)

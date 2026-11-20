@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import numpy as np
 
-from config import MAX_SPEED, SPEED_SCENARIOS, Scenario
+from config import MAX_SPEED, Scenario
 from data import ConvoyAction, OBSERVATIONS, describe_observation, observation_names
 from routes import Route
 
@@ -103,7 +103,7 @@ class TestInputContracts(unittest.TestCase):
         self.assertLess(float(np.max(np.abs(route.curvature[80:-80]))), 1e-6)
 
     def test_corner_route_has_signed_curvature(self):
-        route = Route(SPEED_SCENARIOS[1])
+        route = Route(Scenario("bend", amplitude=1.45, frequency=.27, distance=60.))
         self.assertGreater(float(np.max(np.abs(route.curvature))), 0.01)
 
 
@@ -171,7 +171,7 @@ class TestEntryPoints(unittest.TestCase):
         import subprocess
 
         root = Path(__file__).resolve().parents[1]
-        for script in ("convoy.py", "benchmark.py", "render_convoy.py"):
+        for script in ("field_pair.py", "direction_trials.py", "maneuver.py", "render_convoy.py"):
             with self.subTest(script=script):
                 result = subprocess.run(
                     [sys.executable, str(root / "src" / script), "--help"],
@@ -182,9 +182,10 @@ class TestEntryPoints(unittest.TestCase):
     def test_existing_delivery_checkpoint_contract(self):
         from stable_baselines3 import PPO
 
-        path = Path(__file__).resolve().parents[1] / "assets" / "policy.zip"
+        path = Path(__file__).resolve().parents[1] / "assets" / "field-forward.zip"
         policy = PPO.load(path, device="cpu")
-        self.assertEqual(policy.observation_space.shape, (OBSERVATIONS.delivery,))
+        from field_pair import OBS_SIZE
+        self.assertEqual(policy.observation_space.shape, (OBS_SIZE,))
 
 
 
