@@ -22,6 +22,8 @@ class Scenario:
     distance: float = 12.0
     crest_x: float = 14.0
     speed: float = 0.75  # Original field-trial maximum; default scenario speed
+    loop_width: float = 22.0
+    loop_height: float = 11.0
 
 @dataclass(frozen=True)
 class RoverCommand:

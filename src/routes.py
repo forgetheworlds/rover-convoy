@@ -16,7 +16,7 @@ class Route:
         if scenario.figure8:
             # Analytic proxy for the CSA repeated loop. Its lead-in is tangent to the crossing.
             t = np.linspace(0, 4 * np.pi, 12001)
-            a, b = 22.0, 11.0
+            a, b = scenario.loop_width, scenario.loop_height
             heading = np.arctan2(2 * b, a)
             u, v = a * np.sin(t), b * np.sin(2 * t)
             x = 8 + u * np.cos(heading) + v * np.sin(heading)
@@ -31,6 +31,18 @@ class Route:
             y = scenario.amplitude * (1 - np.cos(scenario.frequency * curve_x))
             distance = np.r_[0.0, np.cumsum(np.hypot(np.diff(x), np.diff(y)))] - 1
             self.finish = scenario.distance
+        self._set_points(distance, x, y)
+
+    @classmethod
+    def from_points(cls, points, finish):
+        route = cls.__new__(cls)
+        route.figure8 = False
+        route.finish = finish
+        distance = np.r_[0, np.cumsum(np.linalg.norm(np.diff(points, axis=0), axis=1))]
+        route._set_points(distance, *points.T)
+        return route
+
+    def _set_points(self, distance, x, y):
         self.s = np.arange(distance[0], distance[-1], 0.05)
         self.xy = np.column_stack([np.interp(self.s, distance, x), np.interp(self.s, distance, y)])
         derivative = np.gradient(self.xy, axis=0)

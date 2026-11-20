@@ -16,7 +16,7 @@ class ConvoyActors(nn.Module):
     latent_dim_pi = 4
     latent_dim_vf = 64
 
-    def __init__(self):
+    def __init__(self, preview_features=0, *, direction_input=False):
         super().__init__()
         names = observation_names('adaptive_speed')
         common = {'command_speed_limit', 'observation_delay'}
@@ -26,11 +26,14 @@ class ConvoyActors(nn.Module):
                   if name.startswith(('leader_', 'previous_leader_')) or name in common]
         follower = [i for i, name in enumerate(names)
                     if name.startswith(('follower_', 'previous_follower_')) or name in common | follower_link]
+        follower.extend(range(len(names), len(names) + preview_features))
+        if direction_input:
+            leader.append(len(names) + preview_features - 1)
         self.register_buffer('leader_inputs', torch.tensor(leader))
         self.register_buffer('follower_inputs', torch.tensor(follower))
         self.leader = _network(len(leader), 2)
         self.follower = _network(len(follower), 2)
-        self.critic = _network(len(names), self.latent_dim_vf)
+        self.critic = _network(len(names) + preview_features, self.latent_dim_vf)
 
     def forward_actor(self, observations):
         leader = self.leader(observations.index_select(-1, self.leader_inputs))

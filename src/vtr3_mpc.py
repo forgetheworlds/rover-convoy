@@ -20,6 +20,7 @@ _SOURCE = (
 # Forward weights from config/lelr_convoy.yaml. Gap weight and tolerance use
 # the pinned follower header defaults.
 WEIGHTS = (WHEELBASE, 15.0, 4.0, 5.0, 0.1, 1.0, 4.5, 7.0, 1.0)
+REVERSE_WEIGHTS = (WHEELBASE, 15.0, 6.0, 2.0, 8.0, 0.0, 12.5, 2.0, 0.0)
 GAP_WEIGHT, GAP_MARGIN = 1.0, 1.0
 
 
@@ -37,9 +38,10 @@ def load_solvers(checkout):
 
 
 class MotionMPC:
-    def __init__(self, solver, speed_limit, follower=False):
+    def __init__(self, solver, speed_limit, follower=False, *, reverse=False):
         self.solver = solver
         self.follower = follower
+        self.weights = REVERSE_WEIGHTS if reverse else WEIGHTS
         self.guess = None
         self.lower_x = np.r_[np.full(POSE_VALUES, -np.inf), np.tile([0, -MAX_STEER], STAGES)]
         self.upper_x = np.r_[np.full(POSE_VALUES, np.inf), np.tile([speed_limit, MAX_STEER], STAGES)]
@@ -62,9 +64,9 @@ class MotionMPC:
         pose = initial[:3]
         base = np.r_[pose, refs.ravel(), previous]
         if self.follower:
-            parameters = np.r_[base, lead_plan.ravel(), SPAN, WEIGHTS, GAP_WEIGHT]
+            parameters = np.r_[base, lead_plan.ravel(), SPAN, self.weights, GAP_WEIGHT]
         else:
-            parameters = np.r_[base, np.ones(STAGES), WEIGHTS]
+            parameters = np.r_[base, np.ones(STAGES), self.weights]
         self.lower_g[self.first] = previous - SLEW[:2]
         self.upper_g[self.first] = previous + SLEW[:2]
         guess = self.guess if self.guess is not None else np.r_[pose, refs.ravel(), np.tile(previous, STAGES)]

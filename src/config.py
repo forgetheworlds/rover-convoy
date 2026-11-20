@@ -27,24 +27,13 @@ WHEEL_Y = np.tile([TRACK / 2, -TRACK / 2], 3)
 
 
 
-HELD_OUT = (
-    Scenario('flat'),
-    Scenario('s-bend', 1.4, 0.31),
-    Scenario('475kg-crest', 0.65, 0.28, slope_deg=7.8),
-    Scenario('low-grip', 0.9, 0.33, friction=0.39),
-    Scenario('heavy-offset-estimates', 1.15, 0.29, 605, 0.74, 3.5, 0.025, 2),
-    Scenario('combined', 1.45, 0.30, 565, 0.46, 7.8, 0.028, 2),
-    Scenario('figure-eight-two-laps', 0, 0.26, 475, 0.64, 7.8, 0.022, 1, True),
-)
-
-SPEED_SCENARIOS = (
-    Scenario('flat', distance=60.0),
-    Scenario('bends', amplitude=1.45, frequency=0.27, distance=60.0),
-    Scenario('475kg-crest', amplitude=-0.65, frequency=0.24, slope_deg=7.8, distance=60.0, crest_x=34.0),
-    Scenario('loose-crest', amplitude=1.05, frequency=0.26, mass=540, friction=0.39,
-             slope_deg=8.4, pose_noise=0.022, state_delay=1, distance=60.0, crest_x=38.0),
-)
-
 # Speed-conditioned training emphasizes the high-speed cornering problem.
 # Speed selection is a curriculum, NOT a speed constraint at control time.
 ADAPTIVE_SPEEDS = (0.75, 1.5, 2.5, 3.0, 3.0, 3.0)
+
+FIELD = (
+    Scenario('field-envelope-crest', amplitude=-.61, frequency=.234, distance=60, mass=475,
+             friction=.72, slope_deg=7.8, crest_x=34, speed=.75, pose_noise=.022, state_delay=1),
+    Scenario('field-envelope-figure-eight', figure8=True, mass=475, friction=.74, slope_deg=7.8,
+             crest_x=14, speed=.75, pose_noise=.016, state_delay=1),
+)

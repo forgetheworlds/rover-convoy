@@ -68,7 +68,8 @@ class CargoConvoy(gym.Env):
     observation_space = gym.spaces.Box(-np.inf, np.inf, (28,), np.float32)
 
     def __init__(self, scenario=None, *, model=None, speed_conditioned=False, delivery=False, adaptive_speed=False,
-                 slider_weight=DELIVERY_SLIDER_WEIGHT, slider_tail_weight=0.0):
+                 slider_weight=DELIVERY_SLIDER_WEIGHT, slider_tail_weight=0.0, reverse=False):
+        self.reverse = reverse
         self.slider_tail_weight = slider_tail_weight
         self.slider_weight = slider_weight
         self.fixed_scenario = scenario
@@ -132,7 +133,8 @@ class CargoConvoy(gym.Env):
         self.model.geom_friction[self.tires, 0] = scenario.friction
         sigma = 3.9
         height = np.tan(np.deg2rad(scenario.slope_deg)) * sigma * np.sqrt(np.e)
-        ridge = height * np.exp(-0.5 * ((self.terrain_x - scenario.crest_x) / sigma) ** 2)
+        terrain_station = SPAN - self.terrain_x if self.reverse else self.terrain_x
+        ridge = height * np.exp(-0.5 * ((terrain_station - scenario.crest_x) / sigma) ** 2)
         self.model.hfield_data[:] = np.tile(ridge / self.terrain_scale, self.terrain_rows)
         mujoco.mj_resetData(self.model, self.data)
         mujoco.mj_setConst(self.model, self.data)
@@ -158,6 +160,16 @@ class CargoConvoy(gym.Env):
         d = self.data
         q = d.qpos[self.free_qpos[:, None] + np.arange(7)]
         velocities = d.qvel[self.free_qvel[:, None] + np.arange(6)]
+        direction = -1 if self.reverse else 1
+        steering_order = self.steering
+        if self.reverse:
+            # Reverse order (B leads), and rotate the map into the travel frame.
+            q = q[::-1].copy()
+            velocities = velocities[::-1].copy()
+            q[:, 0] = SPAN - q[:, 0]
+            q[:, 1] *= -1
+            velocities[:, :2] *= -1
+            steering_order = steering_order[::-1]
         w, x, y, z = q[:, 3:].T
         yaw = np.arctan2(2 * (w * z + x * y), 1 - 2 * (y**2 + z**2))
         cos_yaw, sin_yaw = np.cos(yaw), np.sin(yaw)
@@ -182,7 +194,7 @@ class CargoConvoy(gym.Env):
                 self.observed_indices[i] = index
                 path_headings = np.interp(estimated_s + self.lookahead, self.route.s, self.route.yaw)
                 pitch = np.arcsin(np.clip(2 * (w[i] * y[i] - z[i] * x[i]), -1, 1))
-                delivery_preview.extend([*(angle_wrap(path_headings - pose_yaw) / 0.35), pitch / 0.25])
+                delivery_preview.extend([*(angle_wrap(path_headings - pose_yaw) / 0.35), direction * pitch / 0.25])
                 if self.adaptive_speed:
                     # Signed, dimensionless curvature samples; no external speed envelope.
                     future_curvature = np.interp(estimated_s + self.curvature_lookahead,
@@ -195,7 +207,7 @@ class CargoConvoy(gym.Env):
                 observed_error / CORRIDOR,
                 angle_wrap(pose_yaw - self.route.yaw[index]) / 0.35,
                 body_x[i] / self.speed_limit, body_y[i] / 0.40, velocities[i, 5] / 0.45,
-                d.qpos[self.steering[i]].mean() / MAX_STEER,
+                direction * d.qpos[steering_order[i]].mean() / MAX_STEER,
                 *(preview / [0.75, 1.8, 3.2]),
             ])
         slide = d.qpos[self.slider_qpos]
@@ -214,7 +226,7 @@ class CargoConvoy(gym.Env):
                                1 - 2 * (x[0] ** 2 + y[0] ** 2))
         obs = np.array([
             *samples, slide / SLIDER_LIMIT, slide_speed / 0.5,
-            inferred_grade / 0.25, lead_roll / 0.25,
+            inferred_grade / 0.25, direction * lead_roll / 0.25,
             np.sin(yaw[0] - yaw[1]), self.commands[0] / self.speed_limit, self.commands[1] / MAX_STEER,
             self.commands[2] / self.speed_limit, self.commands[3] / MAX_STEER,
             self.scenario.state_delay / 2,
@@ -227,7 +239,7 @@ class CargoConvoy(gym.Env):
             obs = np.concatenate((obs, np.asarray(adaptive_preview, dtype=np.float32)))
         self.measurements.append(obs)
         self.pose_history.append(np.column_stack((q[:, :2] + noise[:, :2], yaw + noise[:, 2],
-                                                  body_x, d.qpos[self.steering].mean(axis=1))))
+                                                  body_x, direction * d.qpos[steering_order].mean(axis=1))))
         if len(self.measurements) > 3:
             self.measurements.pop(0)
             self.pose_history.pop(0)
@@ -256,13 +268,16 @@ class CargoConvoy(gym.Env):
         change = np.clip(request - self.commands, -SLEW, SLEW)
         self.commands += change
         for i, (speed, steer) in enumerate(self.commands.reshape(2, 2)):
-            k = np.tan(steer) / WHEELBASE
+            direction = -1 if self.reverse else 1
+            k = np.tan(direction * steer) / WHEELBASE
             lateral_radius = 1 - k * WHEEL_Y
             tire_angles = np.arctan(WHEEL_X[:2] * k / lateral_radius[:2])
             scale = lateral_radius.copy()
             scale[:2] = np.hypot(lateral_radius[:2], WHEEL_X[:2] * k)
-            drives = np.clip(speed * scale / RADIUS, -self.wheel_rate_limit, self.wheel_rate_limit)
-            self.data.ctrl[8*i:8*i+8] = np.r_[drives, np.clip(tire_angles, -0.5, 0.5)]
+            drives = np.clip(direction * speed * scale / RADIUS, -self.wheel_rate_limit, self.wheel_rate_limit)
+            physical_rover = 1 - i if self.reverse else i
+            start = 8 * physical_rover
+            self.data.ctrl[start:start + 8] = np.r_[drives, np.clip(tire_angles, -0.5, 0.5)]
         mujoco.mj_step(self.model, self.data, nstep=SUBSTEPS)
         previous_progress = self.metrics['progress']
         observation, metrics = self._observe()
