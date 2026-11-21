@@ -22,10 +22,11 @@ def reference_progress(initial_speed, cruise):
 
 
 class DistributedMPC:
-    def __init__(self, speed_limit, solvers, *, reverse=False):
+    def __init__(self, speed_limit, solvers, *, reverse=False, control_dt=DT, span=SPAN):
         self.speed_limit = speed_limit
-        self.lead = MotionMPC(solvers[0], speed_limit, reverse=reverse)
-        self.follow = MotionMPC(solvers[1], speed_limit, follower=True, reverse=reverse)
+        self.span = float(span)
+        self.lead = MotionMPC(solvers[0], speed_limit, reverse=reverse, control_dt=control_dt, span=span)
+        self.follow = MotionMPC(solvers[1], speed_limit, follower=True, reverse=reverse, control_dt=control_dt, span=span)
         self.failures = 0
         self.leader_index = None
 
@@ -40,7 +41,7 @@ class DistributedMPC:
         previous = env.commands.reshape(2, 2)
         if env.route.figure8:
             if self.leader_index is None:
-                self.leader_index = int(np.searchsorted(env.route.s, SPAN))
+                self.leader_index = int(np.searchsorted(env.route.s, self.span))
             self.leader_index, start, _ = env.route.track(initial[0, :2], self.leader_index)
         else:
             start = projected_distance(env.route, initial[0:1, :2])[0]
@@ -69,7 +70,9 @@ def run_episode(scenario, seed, policy, solvers, *, mpc_cruise=None, environment
     env = environment if environment is not None else CargoConvoy(
         scenario, delivery=True, adaptive_speed=policy is not None and policy.observation_space.shape == (41,))
     observation, _ = env.reset(seed=1000 + seed)
-    mpc = (DistributedMPC(scenario.speed, solvers, reverse=env.unwrapped.reverse)
+    control_dt = env.unwrapped.control_dt
+    mpc = (DistributedMPC(scenario.speed, solvers, reverse=env.unwrapped.reverse,
+                          control_dt=control_dt, span=env.unwrapped.span)
            if policy is None else None)
     slide, cross, elapsed = [], [], []
     try:
@@ -89,13 +92,15 @@ def run_episode(scenario, seed, policy, solvers, *, mpc_cruise=None, environment
     return dict(
         course=scenario.name, speed=scenario.speed, seed=seed,
         success=int(info['success']), stop=info['stop_reason'],
-        progress_m=round(float(info['progress'][1]), 3), time_s=round(len(slide) * DT, 2),
+        progress_m=round(float(info['progress'][1]), 3), time_s=round(len(slide) * control_dt, 2),
         slide_rmse_cm=round(100 * np.sqrt(np.mean(np.square(slide))), 3),
         slide_peak_cm=round(100 * np.max(np.abs(slide)), 3),
-        slider_over_10cm_s=round(above_target * DT, 2),
+        slider_over_10cm_s=round(above_target * control_dt, 2),
         slider_over_10cm_pct=round(100 * above_target / len(slide), 2),
         rover_a_rmse_cm=round(100 * lateral_rms[0], 3), rover_b_rmse_cm=round(100 * lateral_rms[1], 3),
         path_peak_cm=round(100 * np.max(np.abs(cross)), 3),
         controller_p95_ms=round(float(np.quantile(elapsed, 0.95)), 4),
+        controller_deadline_misses=int(np.count_nonzero(np.asarray(elapsed) > control_dt * 1000)),
+        control_steps=len(elapsed),
         solver_failures=mpc.failures if mpc else 0,
     )

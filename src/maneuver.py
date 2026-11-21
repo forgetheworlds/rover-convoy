@@ -10,7 +10,7 @@ import torch
 
 from benchmark import DistributedMPC
 from config import DT, SPAN, SPEED, Scenario
-from field_pair import OBS_SIZE, FieldPairEnv
+from field_pair import HIDDEN_INPUTS, OBS_SIZE, FieldPairEnv
 from routes import Route, angle_wrap, projected_distance, route_poses
 from vtr3_mpc import load_solvers
 
@@ -63,8 +63,9 @@ def cargo_door(env):
     return np.array([SPAN - door[0], -door[1], np.arctan2(rotation[1, 0], rotation[0, 0])])
 
 
-def run_maneuver(scenario, seed, policy, solvers):
-    pair = FieldPairEnv(scenario, direction_input=policy is not None and policy.observation_space.shape[0] > OBS_SIZE)
+def run_maneuver(scenario, seed, policy, solvers, *, observation='full'):
+    pair = FieldPairEnv(scenario, observation=observation if policy is not None else 'full',
+                        direction_input=policy is not None and policy.observation_space.shape[0] > OBS_SIZE)
     env = pair.env
     observation, _ = pair.reset(seed=seed)
     forward = DistributedMPC(scenario.speed, solvers) if solvers else None
@@ -138,6 +139,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--model', type=Path, required=True)
     parser.add_argument('--vtr3', type=Path, required=True)
+    parser.add_argument('--observation', choices=sorted(HIDDEN_INPUTS), default='pose-only')
     parser.add_argument('--out', type=Path, required=True)
     args = parser.parse_args()
     torch.set_num_threads(1)
@@ -151,7 +153,8 @@ def main():
     rows = []
     for scenario in cases:
         for name, model, reference in [('learned', policy, None), ('upstream-vtr3', None, solvers)]:
-            row = dict(controller=name, scenario=scenario.name, **run_maneuver(scenario, 1221, model, reference))
+            row = dict(controller=name, scenario=scenario.name,
+                       **run_maneuver(scenario, 1221, model, reference, observation=args.observation))
             rows.append(row)
             print(row, flush=True)
     args.out.parent.mkdir(exist_ok=True, parents=True)

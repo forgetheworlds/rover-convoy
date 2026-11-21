@@ -10,7 +10,9 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 
 from config import CONDITIONED_CRUISE, MAX_SPEED, SPEED
-from field_pair import OBS_SIZE, FieldPairEnv, teacher_action
+from data import observation_names
+from evaluate import make_courses
+from field_pair import HIDDEN_INPUTS, OBS_SIZE, FieldPairEnv, teacher_action
 from learned_control import ConvoyActors
 from leader_preview import PREVIEW_FEATURES
 
@@ -45,3 +47,24 @@ class TestFieldPair(unittest.TestCase):
             self.assertTrue(env.observation_space.contains(env.step(teacher_action(obs))[0]))
         finally:
             env.close()
+
+    def test_observation_mask_hides_privileged_channels_from_actors(self):
+        names = observation_names('adaptive_speed')
+        self.assertEqual([names[i] for i in HIDDEN_INPUTS['no-slider']],
+                         ['slider_position', 'slider_velocity'])
+        for mode in ('no-slider', 'pose-only'):
+            with self.subTest(mode=mode):
+                env = FieldPairEnv(observation=mode)
+                try:
+                    obs, _ = env.reset(seed=3)
+                    for _ in range(5):
+                        obs, _, terminated, truncated, _ = env.step(teacher_action(obs, env))
+                        self.assertTrue(np.all(obs[list(HIDDEN_INPUTS[mode])] == 0.0))
+                        if terminated or truncated:
+                            break
+                finally:
+                    env.close()
+
+    def test_eval_courses_are_deterministic(self):
+        self.assertEqual(make_courses('heldout', 4), make_courses('heldout', 4))
+        self.assertNotEqual(make_courses('heldout', 4), make_courses('shifted', 4))
