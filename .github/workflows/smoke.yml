@@ -2,6 +2,8 @@ name: Python smoke tests
 
 on:
   pull_request:
+  push:
+    branches: [main]
 
 jobs:
   smoke:

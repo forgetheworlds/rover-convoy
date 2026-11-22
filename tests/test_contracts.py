@@ -16,6 +16,68 @@ from data import ConvoyAction, OBSERVATIONS, describe_observation, observation_n
 from routes import Route
 
 
+class TestSliderReward(unittest.TestCase):
+    def test_heavier_slider_penalty_is_symmetric_and_zero_at_center(self):
+        from environment import delivery_reward
+
+        zero = np.zeros(2)
+        metrics = {'progress': zero, 'lateral': zero, 'tilt': 0, 'slide_speed': 0, 'slider': 0}
+        for displacement in (0, 0.05, -0.05):
+            metrics['slider'] = displacement
+            before = delivery_reward(metrics, zero, np.zeros(4), False, False, 3)
+            after = delivery_reward(metrics, zero, np.zeros(4), False, False, 3, slider_weight=0.30)
+            self.assertAlmostEqual(before - after, 0.06 * abs(displacement) / 0.05)
+
+
+    def test_tail_penalty_applies_only_above_ten_centimeters(self):
+        from environment import delivery_reward
+
+        state = np.zeros(2)
+        metrics = {'progress': state, 'lateral': state, 'tilt': 0, 'slide_speed': 0, 'slider': 0}
+        for displacement, penalty in ((0.09, 0), (0.10, 0), (-0.15, 0.125), (0.20, 0.5)):
+            metrics['slider'] = displacement
+            old = delivery_reward(metrics, state, np.zeros(4), False, False, 3)
+            new = delivery_reward(metrics, state, np.zeros(4), False, False, 3, slider_tail_weight=0.5)
+            self.assertAlmostEqual(old - new, penalty)
+
+
+class TestLearnedControllers(unittest.TestCase):
+    def test_leader_does_not_read_follower_features(self):
+        import torch
+        from learned_control import ConvoyActors
+
+        model = ConvoyActors()
+        baseline = torch.zeros((1, 41))
+        varied = torch.ones((1, 41))
+        varied[:, model.leader_inputs] = 0
+        torch.testing.assert_close(model.forward_actor(baseline)[:, :2],
+                                   model.forward_actor(varied)[:, :2])
+
+    def test_follower_reads_only_its_own_and_link_features(self):
+        import torch
+        from learned_control import ConvoyActors
+
+        model = ConvoyActors()
+        baseline = torch.zeros((1, 41))
+        varied = torch.ones((1, 41))
+        varied[:, model.follower_inputs] = 0
+        torch.testing.assert_close(model.forward_actor(baseline)[:, 2:],
+                                   model.forward_actor(varied)[:, 2:])
+        self.assertNotIn(18, model.leader_inputs.tolist())
+        self.assertIn(18, model.follower_inputs.tolist())
+
+    def test_loop_projection_uses_the_arclength_hint(self):
+        from routes import projected_distance, route_poses
+
+        route = Route(Scenario(figure8=True))
+        # These two arclengths reach the same point on different loops.
+        lap = (route.s[-1] - 8.0) / 2
+        first, later = 8.0, 8.0 + lap
+        crossing = route_poses(route, np.array([first]))[:, :2]
+        self.assertAlmostEqual(projected_distance(route, crossing, hint=[first])[0], first, places=2)
+        self.assertGreater(projected_distance(route, crossing, hint=[later])[0], first + 100)
+
+
 class TestInputContracts(unittest.TestCase):
     def test_observation_schema_lengths(self):
         self.assertEqual(len(observation_names("base")), OBSERVATIONS.base)
