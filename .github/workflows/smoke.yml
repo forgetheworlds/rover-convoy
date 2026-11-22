@@ -1,8 +1,6 @@
 name: Python smoke tests
 
 on:
-  push:
-    branches: [refactor/learned-speed-control]
   pull_request:
 
 jobs:
