@@ -88,3 +88,20 @@ def observation_names(kind="adaptive_speed"):
     if kind == "adaptive_speed":
         return names + tuple(f"{rover}_{feature}" for rover in ("leader", "follower") for feature in _CURVATURE)
     raise ValueError(f"Unknown observation kind: {kind}")
+
+
+def describe_observation(values):
+    """Turn an observation into named values for debugging (not the hot loop)."""
+    values = np.asarray(values)
+    if values.ndim != 1:
+        raise ValueError("Expected a one-dimensional policy observation")
+    layouts = {
+        OBSERVATIONS.base: "base",
+        OBSERVATIONS.speed_conditioned: "speed_conditioned",
+        OBSERVATIONS.delivery: "delivery",
+        OBSERVATIONS.adaptive_speed: "adaptive_speed",
+    }
+    if len(values) not in layouts:
+        raise ValueError(f"Unknown observation length: {len(values)}")
+    return dict(zip(observation_names(layouts[len(values)]),
+                    (float(value) for value in values)))
