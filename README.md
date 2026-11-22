@@ -1,12 +1,20 @@
-# Learned control vs. classical MPC for a cargo rover convoy
+# Learned Control vs. Classical MPC for a Cargo Rover Convoy
 
-A MuJoCo reproduction of Krawciw et al., [*Sharing the Load: Autonomous Multi-Rover Cargo Transport*](https://arxiv.org/abs/2510.18766v2) (which went straight from small-scale to full-scale hardware without physics simulation), comparing a **strictly pose-only learned PPO policy** against the **pinned upstream VT&R3 distributed MPC**.
+A simulation-based study inspired by Krawciw et al., [*Sharing the Load: Autonomous Multi-Rover Cargo Transport*](https://arxiv.org/abs/2510.18766v2), comparing a learned PPO controller against the original VT&R3 distributed MPC implementation in MuJoCo.
 
-## Thesis
+## Motivation
 
-Classical control (such as kinematic MPC) is often preferred in robotics because learned control has historically carried high engineering overhead: building simulation environments, configuring rewards and observation spaces, and re-running training whenever a physical parameter changes. **Agentic coding largely eliminates that setup friction.** Once a fast simulation and evaluation harness is in place, testing hypotheses—matching sensor inputs, generalizing across payload mass, speeds, reverse dynamics, and cargo spans—takes minutes rather than weeks, allowing learned control to outperform a kinematic model on 3D dynamics it can directly experience in training.
+After reading the paper, I started thinking about some of the trade-offs between classical and learned control methods in robotics. One of the things that interested me was whether recent developments in agentic coding could reduce the engineering overhead associated with developing simulation environments, training policies and running experiments.
 
-*Note on process and scope:* I read the paper, formulated the research hypothesis and experimental design myself, and directed an AI coding agent to build the MuJoCo environment, observation-matching layer, reward shaping, and training/evaluation infrastructure. All numbers below are **simulation-only** (100 Hz MuJoCo physics) and do not replace field testing.
+I wanted to explore how a relatively small neural network would perform as a controller when given the same observations available to the MPC, particularly under different payloads, terrain conditions and operating speeds.
+
+I used AI coding agents to implement the simulation and experimental infrastructure while directing the experimental design and evaluating the results.
+
+## Scope and limitations
+
+All results are simulation-based and depend on the accuracy of the simulated dynamics and the controller configurations. The purpose of this project is not to establish that learned control is superior to MPC, but to explore its potential advantages and limitations under a specific set of conditions.
+
+MPC offers advantages in interpretability, explicit constraint handling and adaptation to changing objectives, while learned controllers may offer lower runtime computational costs. Physical experiments would be necessary to evaluate how well these findings transfer to real robotic systems.
 
 ## Watch it run
 
