@@ -1,0 +1,5 @@
+controller,scenario,success,stage,time_s,slide_peak_cm,along_cm,lateral_cm,yaw_deg
+learned,curved-approach,True,dock-aligned,119.3,2.523,5.37,-0.51,-0.12
+upstream-vtr3,curved-approach,False,dock-tolerance,125.4,13.84,4.15,-14.59,-6.67
+learned,graded-approach,True,dock-aligned,128.3,5.433,8.89,7.37,2.37
+upstream-vtr3,graded-approach,False,reverse/slider-travel,118.0,50.314,,,
