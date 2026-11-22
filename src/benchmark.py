@@ -1,23 +1,17 @@
 """Compare the learned joint controller with the upstream VT&R3 D-MPC solvers."""
 
-import argparse
-import csv
-from dataclasses import replace
-from pathlib import Path
 from time import perf_counter_ns
 
 import numpy as np
-from stable_baselines3 import PPO
-import torch
 
 from config import (
-    CONDITIONED_CRUISE, DT, MAX_STEER, ROOT, SPAN, SPEED_SCENARIOS, SLEW, WHEELBASE,
+    CONDITIONED_CRUISE, DT, MAX_STEER, SPAN, SLEW, WHEELBASE,
 )
 from environment import CargoConvoy, SLIDER_TARGET
 from routes import angle_wrap, follower_references, projected_distance, route_poses
 
-from vtr3_mpc import MotionMPC, REVISION, STAGES, STEP, load_solvers
-SPEEDS = (0.75, 1.5, 3.0)
+from vtr3_mpc import MotionMPC, STAGES, STEP
+
 def reference_progress(initial_speed, cruise):
     """Reference distance at each stage with a slew-feasible cruise ramp."""
     times = STEP * np.arange(1, STAGES + 1)
@@ -28,10 +22,10 @@ def reference_progress(initial_speed, cruise):
 
 
 class DistributedMPC:
-    def __init__(self, speed_limit, solvers):
+    def __init__(self, speed_limit, solvers, *, reverse=False):
         self.speed_limit = speed_limit
-        self.lead = MotionMPC(solvers[0], speed_limit)
-        self.follow = MotionMPC(solvers[1], speed_limit, follower=True)
+        self.lead = MotionMPC(solvers[0], speed_limit, reverse=reverse)
+        self.follow = MotionMPC(solvers[1], speed_limit, follower=True, reverse=reverse)
         self.failures = 0
         self.leader_index = None
 
@@ -68,20 +62,21 @@ class DistributedMPC:
         return actions
 
 
-def run_episode(scenario, seed, policy, solvers, *, mpc_cruise=None):
+def run_episode(scenario, seed, policy, solvers, *, mpc_cruise=None, environment=None):
     cruise = scenario.speed if mpc_cruise is None else mpc_cruise
     if not 0 < cruise <= scenario.speed:
         raise ValueError("MPC cruise must be positive and below or equal to the speed ceiling.")
-    env = CargoConvoy(scenario, delivery=True,
-                      adaptive_speed=policy is not None and policy.observation_space.shape == (41,))
+    env = environment if environment is not None else CargoConvoy(
+        scenario, delivery=True, adaptive_speed=policy is not None and policy.observation_space.shape == (41,))
     observation, _ = env.reset(seed=1000 + seed)
-    mpc = DistributedMPC(scenario.speed, solvers) if policy is None else None
+    mpc = (DistributedMPC(scenario.speed, solvers, reverse=env.unwrapped.reverse)
+           if policy is None else None)
     slide, cross, elapsed = [], [], []
     try:
         while True:
             start = perf_counter_ns()
-            action = (mpc(env, cruise) if mpc else policy.predict(observation, deterministic=True)[0])
-            elapsed.append((perf_counter_ns() - start) * 1e-6)
+            action = (mpc(env.unwrapped, cruise) if mpc else policy.predict(observation, deterministic=True)[0])
+            elapsed.append((perf_counter_ns() - start) * 1e-6 + getattr(env, 'controller_preparation_ms', 0.0))
             observation, _, ended, timed_out, info = env.step(action)
             slide.append(info['slider'])
             cross.append(info['lateral'])
@@ -104,42 +99,3 @@ def run_episode(scenario, seed, policy, solvers, *, mpc_cruise=None):
         controller_p95_ms=round(float(np.quantile(elapsed, 0.95)), 4),
         solver_failures=mpc.failures if mpc else 0,
     )
-
-
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--speed', action='append', type=float, choices=SPEEDS, help='repeat to choose speeds')
-    parser.add_argument('--model', action='append', type=Path, help='repeat to compare additional PPO checkpoints')
-    parser.add_argument('--out', type=Path, default=ROOT / 'runs' / 'benchmark.csv')
-    parser.add_argument('--vtr3', type=Path, default=ROOT / 'runs' / 'vtr3',
-                        help='checkout of the pinned VT&R3 revision (see README)')
-    parser.add_argument('--course', choices=[s.name for s in SPEED_SCENARIOS])
-    args = parser.parse_args()
-    try:
-        solvers = load_solvers(args.vtr3)
-    except ValueError as exc:
-        parser.error(str(exc))
-    torch.set_num_threads(1)
-    models = args.model or [ROOT / 'assets' / 'policy.zip']
-    controllers = [('VT&R3 D-MPC', None), *((p.stem, PPO.load(p, device='cpu')) for p in models)]
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    with args.out.open('w', newline='') as file:
-        writer = None
-        for speed in args.speed or SPEEDS:
-            for scenario in SPEED_SCENARIOS:
-                if args.course and scenario.name != args.course:
-                    continue
-                for seed in (0, 1) if scenario.name == 'loose-crest' else (0,):
-                    for label, policy in controllers:
-                        row = dict(controller=label, vtr3_revision=REVISION,
-                                   **run_episode(replace(scenario, speed=speed), seed, policy, solvers))
-                        if writer is None:
-                            writer = csv.DictWriter(file, fieldnames=list(row))
-                            writer.writeheader()
-                        writer.writerow(row)
-                        file.flush()
-                        print(row, flush=True)
-
-
-if __name__ == '__main__':
-    main()
