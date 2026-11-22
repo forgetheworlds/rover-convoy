@@ -8,6 +8,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: utiasASRL/vtr3
+          ref: 76433e3e1a275511ece5097d832534f6a9202da1
+          path: runs/vtr3
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
