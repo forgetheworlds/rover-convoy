@@ -11,10 +11,10 @@ import numpy as np
 from config import (
     ADAPTIVE_SPEEDS, CONDITIONED_CRUISE, CORRIDOR, DELIVERY_FAILURE_COST,
     DELIVERY_SPEEDS, DT, FAILURE_COST, MAX_SPEED, MAX_STEER, RADIUS, SLEW,
-    SLIDER_LIMIT, SPEED, SPAN, SUBSTEPS, TRAIN_SPEEDS, WHEEL_X, WHEEL_Y,
+    SLIDER_LIMIT, SPEED, SPAN, SUBSTEPS, SWEEP_MAX_SPEED, TRAIN_SPEEDS, WHEEL_X, WHEEL_Y,
     WHEELBASE, XML,
 )
-from data import OBSERVATIONS
+from data import OBSERVATIONS, Scenario
 from routes import Route, angle_wrap
 
 def convoy_reward(metrics, previous_progress, command_change, completed, failed, speed_limit=MAX_SPEED):
