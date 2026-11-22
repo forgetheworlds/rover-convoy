@@ -1,0 +1,21 @@
+name: Python smoke tests
+
+on:
+  push:
+    branches: [refactor/learned-speed-control]
+  pull_request:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile source
+        run: python -m compileall -q src tests
+      - name: Install runtime dependencies
+        run: pip install -r requirements.txt
+      - name: Test input contracts and MuJoCo simulation
+        run: python -m unittest discover -s tests -v
