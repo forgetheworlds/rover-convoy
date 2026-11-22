@@ -28,9 +28,9 @@ class TestUpstreamMPC(unittest.TestCase):
         if not checkout.exists() and 'VTR3_CHECKOUT' not in os.environ:
             self.skipTest('Pinned VT&R3 checkout is required for the integration test')
         from benchmark import run_episode
-        from config import SPEED_SCENARIOS
+        from config import Scenario
 
-        scenario = next(case for case in SPEED_SCENARIOS if case.name == 'flat')
+        scenario = Scenario('flat')
         result = run_episode(replace(scenario, distance=3, speed=0.75), 0, None, load_solvers(checkout))
         self.assertEqual(result['success'], 1, result)
         self.assertEqual(result['solver_failures'], 0, result)
