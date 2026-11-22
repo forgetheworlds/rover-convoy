@@ -1,0 +1,7 @@
+controller,direction,control_hz,cruise_mps,mean_progress_mps,course,speed,seed,success,stop,progress_m,time_s,slide_rmse_cm,slide_peak_cm,slider_over_10cm_s,slider_over_10cm_pct,rover_a_rmse_cm,rover_b_rmse_cm,path_peak_cm,controller_p95_ms,controller_deadline_misses,control_steps,solver_failures
+learned-pose-only,forward,50,0.5,0.4906,short-crest-0.75,0.75,71,1,,39.005,79.5,4.465,11.133,1.3,1.64,3.191,3.586,8.592,0.3802,0,3975,0
+learned-pose-only,forward,50,1.0,0.982,short-crest-1.5,1.5,71,1,,39.005,39.72,5.306,10.247,0.44,1.11,3.312,4.622,8.837,0.3885,0,1986,0
+learned-pose-only,forward,50,2.0,1.7807,short-crest-3,3.0,71,1,,39.034,21.92,6.931,15.922,3.84,17.52,3.714,3.223,10.697,0.3989,0,1096,0
+vtr3-mpc,forward,50,0.5,0.4816,short-crest-0.75,0.75,71,1,,39.008,81.0,7.087,15.032,16.34,20.17,3.099,3.078,8.308,9.3232,0,4050,0
+vtr3-mpc,forward,50,1.0,0.9485,short-crest-1.5,1.5,71,1,,39.003,41.12,6.56,15.381,5.5,13.38,5.019,4.685,13.127,10.9543,0,2056,0
+vtr3-mpc,forward,50,2.0,1.6923,short-crest-3,3.0,71,1,,39.024,23.06,8.079,24.475,2.96,12.84,8.975,4.084,20.642,11.9961,0,1153,0

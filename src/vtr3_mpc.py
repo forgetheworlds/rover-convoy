@@ -38,9 +38,11 @@ def load_solvers(checkout):
 
 
 class MotionMPC:
-    def __init__(self, solver, speed_limit, follower=False, *, reverse=False):
+    def __init__(self, solver, speed_limit, follower=False, *, reverse=False, control_dt=DT, span=SPAN):
         self.solver = solver
         self.follower = follower
+        self.span = float(span)
+        self.first_slew = SLEW[:2] * (control_dt / DT)
         self.weights = REVERSE_WEIGHTS if reverse else WEIGHTS
         self.guess = None
         self.lower_x = np.r_[np.full(POSE_VALUES, -np.inf), np.tile([0, -MAX_STEER], STAGES)]
@@ -51,8 +53,8 @@ class MotionMPC:
         self.lower_g = np.r_[np.zeros(POSE_VALUES), np.repeat(-CORRIDOR, STAGES), [0, 0], -rates]
         self.upper_g = np.r_[np.zeros(POSE_VALUES), np.repeat(CORRIDOR, STAGES), [0, 0], rates]
         if follower:
-            self.lower_g = np.r_[self.lower_g, np.repeat(SPAN - GAP_MARGIN, STAGES)]
-            self.upper_g = np.r_[self.upper_g, np.repeat(SPAN + GAP_MARGIN, STAGES)]
+            self.lower_g = np.r_[self.lower_g, np.repeat(self.span - GAP_MARGIN, STAGES)]
+            self.upper_g = np.r_[self.upper_g, np.repeat(self.span + GAP_MARGIN, STAGES)]
         self.first = slice(POSE_VALUES + STAGES, POSE_VALUES + STAGES + 2)
         p_size = 3 + 3 * STAGES + 2 + len(WEIGHTS) + (3 * STAGES + 2 if follower else STAGES)
         if (solver.size1_in('p'), solver.size1_in('lbg'), solver.size1_in('x0')) != (
@@ -64,11 +66,11 @@ class MotionMPC:
         pose = initial[:3]
         base = np.r_[pose, refs.ravel(), previous]
         if self.follower:
-            parameters = np.r_[base, lead_plan.ravel(), SPAN, self.weights, GAP_WEIGHT]
+            parameters = np.r_[base, lead_plan.ravel(), self.span, self.weights, GAP_WEIGHT]
         else:
             parameters = np.r_[base, np.ones(STAGES), self.weights]
-        self.lower_g[self.first] = previous - SLEW[:2]
-        self.upper_g[self.first] = previous + SLEW[:2]
+        self.lower_g[self.first] = previous - self.first_slew
+        self.upper_g[self.first] = previous + self.first_slew
         guess = self.guess if self.guess is not None else np.r_[pose, refs.ravel(), np.tile(previous, STAGES)]
         try:
             solution = self.solver(x0=guess, p=parameters, lbx=self.lower_x, ubx=self.upper_x,

@@ -11,7 +11,7 @@ import numpy as np
 from config import (
     ADAPTIVE_SPEEDS, CONDITIONED_CRUISE, CORRIDOR, DELIVERY_FAILURE_COST,
     DELIVERY_SPEEDS, DT, FAILURE_COST, MAX_SPEED, MAX_STEER, RADIUS, SLEW,
-    SLIDER_LIMIT, SPEED, SPAN, SUBSTEPS, SWEEP_MAX_SPEED, TRAIN_SPEEDS, WHEEL_X, WHEEL_Y,
+    SLIDER_LIMIT, SPEED, SPAN, SWEEP_MAX_SPEED, TRAIN_SPEEDS, WHEEL_X, WHEEL_Y,
     WHEELBASE, XML,
 )
 from data import OBSERVATIONS, Scenario
@@ -68,7 +68,7 @@ class CargoConvoy(gym.Env):
     observation_space = gym.spaces.Box(-np.inf, np.inf, (28,), np.float32)
 
     def __init__(self, scenario=None, *, model=None, speed_conditioned=False, delivery=False, adaptive_speed=False,
-                 slider_weight=DELIVERY_SLIDER_WEIGHT, slider_tail_weight=0.0, reverse=False):
+                 slider_weight=DELIVERY_SLIDER_WEIGHT, slider_tail_weight=0.0, reverse=False, control_hz=10):
         self.reverse = reverse
         self.slider_tail_weight = slider_tail_weight
         self.slider_weight = slider_weight
@@ -80,6 +80,15 @@ class CargoConvoy(gym.Env):
         speed_conditioned = speed_conditioned or delivery
         self.speed_conditioned = speed_conditioned
         self.model = model if model is not None else mujoco.MjModel.from_xml_path(str(XML))
+        if not np.isfinite(control_hz) or control_hz <= 0:
+            raise ValueError('Control frequency must be positive and finite.')
+        self.control_dt = 1.0 / control_hz
+        self.substeps = int(round(self.control_dt / self.model.opt.timestep))
+        if not self.substeps or not np.isclose(self.substeps * self.model.opt.timestep, self.control_dt):
+            raise ValueError('Each control step must contain a whole number of physics steps.')
+        self.slew = SLEW * (self.control_dt / DT)
+        self.pose_decay = .98 ** (self.control_dt / DT)
+        self.pose_innovation = .20 * np.sqrt((1 - self.pose_decay**2) / (1 - .98**2))
         self.wheel_rate_limit = 11.0 if speed_conditioned else 2.8
         if speed_conditioned:
             self.observation_space = gym.spaces.Box(-np.inf, np.inf,
@@ -101,6 +110,9 @@ class CargoConvoy(gym.Env):
         self.slider_qpos = self.model.jnt_qposadr[self.model.joint('slider').id]
         self.slider_qvel = self.model.jnt_dofadr[self.model.joint('slider').id]
         self.cargo = self.model.body('cargo').id
+        self.rear_carriage = self.model.body('rear_carriage').id
+        self.payload_geom = self.model.geom('payload').id
+        self.span = SPAN
         self.cargo_mass = self.model.body_mass[self.cargo]
         self.cargo_inertia = self.model.body_inertia[self.cargo].copy()
         self.tires = [index for index in range(self.model.ngeom)
@@ -124,16 +136,22 @@ class CargoConvoy(gym.Env):
             speed=float(rng.choice(speeds)) if self.speed_conditioned else MAX_SPEED,
         )
         scenario = self.scenario
+        self.span = float(scenario.span)
         self.speed_limit = scenario.speed if self.speed_conditioned else MAX_SPEED
         self.route = Route(scenario)
-        self.max_steps = int((self.route.finish / SPEED * 1.22 + 7) / DT)
+        self.max_steps = int((self.route.finish / SPEED * 1.22 + 7) / self.control_dt)
+        self.delay_steps = round(scenario.state_delay * DT / self.control_dt)
+        self.model.qpos0[self.free_qpos[0]] = self.span
+        self.model.body_pos[self.rear_carriage, 0] = -self.span
+        self.model.geom_pos[self.payload_geom, 0] = -0.5 * self.span
+        self.model.geom_size[self.payload_geom, 1] = 0.5 * self.span + 0.6625
         mass_ratio = (scenario.mass + 1) / self.cargo_mass
         self.model.body_mass[self.cargo] = self.cargo_mass * mass_ratio
         self.model.body_inertia[self.cargo] = self.cargo_inertia * mass_ratio
         self.model.geom_friction[self.tires, 0] = scenario.friction
         sigma = 3.9
         height = np.tan(np.deg2rad(scenario.slope_deg)) * sigma * np.sqrt(np.e)
-        terrain_station = SPAN - self.terrain_x if self.reverse else self.terrain_x
+        terrain_station = self.span - self.terrain_x if self.reverse else self.terrain_x
         ridge = height * np.exp(-0.5 * ((terrain_station - scenario.crest_x) / sigma) ** 2)
         self.model.hfield_data[:] = np.tile(ridge / self.terrain_scale, self.terrain_rows)
         mujoco.mj_resetData(self.model, self.data)
@@ -141,7 +159,7 @@ class CargoConvoy(gym.Env):
         mujoco.mj_step(self.model, self.data, nstep=100)
         self.commands = np.zeros(4)
         self.ticks = 0
-        self.indices = np.argmin(abs(self.route.s[np.newaxis, :] - np.array([[SPAN], [0]])), axis=1)
+        self.indices = np.argmin(abs(self.route.s[np.newaxis, :] - np.array([[self.span], [0]])), axis=1)
         if self.delivery:
             self.observed_indices = self.indices.copy()
             self.pose_bias = np.zeros((2, 3))
@@ -166,7 +184,7 @@ class CargoConvoy(gym.Env):
             # Reverse order (B leads), and rotate the map into the travel frame.
             q = q[::-1].copy()
             velocities = velocities[::-1].copy()
-            q[:, 0] = SPAN - q[:, 0]
+            q[:, 0] = self.span - q[:, 0]
             q[:, 1] *= -1
             velocities[:, :2] *= -1
             steering_order = steering_order[::-1]
@@ -179,7 +197,7 @@ class CargoConvoy(gym.Env):
         noise = self.np_random.normal(0, self.scenario.pose_noise, (2, 3))
         if self.delivery:
             # Slowly varying scan-matching error plus per-scan noise, in the taught map frame.
-            self.pose_bias = 0.98 * self.pose_bias + 0.20 * noise
+            self.pose_bias = self.pose_decay * self.pose_bias + self.pose_innovation * noise
             noise = 0.55 * noise + self.pose_bias
         for i in range(2):
             index, current_s, error = self.route.track(q[i, :2], self.indices[i])
@@ -240,13 +258,13 @@ class CargoConvoy(gym.Env):
         self.measurements.append(obs)
         self.pose_history.append(np.column_stack((q[:, :2] + noise[:, :2], yaw + noise[:, 2],
                                                   body_x, direction * d.qpos[steering_order].mean(axis=1))))
-        if len(self.measurements) > 3:
+        if len(self.measurements) > max(3, self.delay_steps + 1):
             self.measurements.pop(0)
             self.pose_history.pop(0)
-        delayed = max(0, len(self.measurements) - 1 - self.scenario.state_delay)
+        delayed = max(0, len(self.measurements) - 1 - self.delay_steps)
         obs = self.measurements[delayed]
         self.estimated_states = self.pose_history[delayed]
-        self.estimate_age = (len(self.measurements) - 1 - delayed) * DT
+        self.estimate_age = (len(self.measurements) - 1 - delayed) * self.control_dt
         pin_error = np.linalg.norm(d.site('carriage_pin').xpos - d.site('rear_socket').xpos)
         return obs, dict(
             lateral=np.asarray(cross), progress=np.asarray(progress), slider=slide,
@@ -265,7 +283,7 @@ class CargoConvoy(gym.Env):
             request[::2] = SPEED + 0.50 * action[::2]
         request[::2] = np.clip(request[::2], 0, self.speed_limit)
         request[1::2] *= MAX_STEER
-        change = np.clip(request - self.commands, -SLEW, SLEW)
+        change = np.clip(request - self.commands, -self.slew, self.slew)
         self.commands += change
         for i, (speed, steer) in enumerate(self.commands.reshape(2, 2)):
             direction = -1 if self.reverse else 1
@@ -278,7 +296,7 @@ class CargoConvoy(gym.Env):
             physical_rover = 1 - i if self.reverse else i
             start = 8 * physical_rover
             self.data.ctrl[start:start + 8] = np.r_[drives, np.clip(tire_angles, -0.5, 0.5)]
-        mujoco.mj_step(self.model, self.data, nstep=SUBSTEPS)
+        mujoco.mj_step(self.model, self.data, nstep=self.substeps)
         previous_progress = self.metrics['progress']
         observation, metrics = self._observe()
         self.metrics = metrics

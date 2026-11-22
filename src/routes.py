@@ -13,6 +13,7 @@ def angle_wrap(angle):
 class Route:
     def __init__(self, scenario):
         self.figure8 = scenario.figure8
+        self.span = scenario.span
         if scenario.figure8:
             # Analytic proxy for the CSA repeated loop. Its lead-in is tangent to the crossing.
             t = np.linspace(0, 4 * np.pi, 12001)
@@ -23,7 +24,7 @@ class Route:
             y = -u * np.sin(heading) + v * np.cos(heading)
             x, y = np.r_[np.linspace(0, 8, 161)[:-1], x], np.r_[np.zeros(160), y]
             distance = np.r_[0.0, np.cumsum(np.hypot(np.diff(x), np.diff(y)))]
-            self.finish = distance[-1] - SPAN - 0.2
+            self.finish = distance[-1] - self.span - 0.2
         else:
             end = max(30, scenario.distance + 12)
             x = np.linspace(-1, end, round((end + 1) / 0.05) + 1)
@@ -34,9 +35,10 @@ class Route:
         self._set_points(distance, x, y)
 
     @classmethod
-    def from_points(cls, points, finish):
+    def from_points(cls, points, finish, span=SPAN):
         route = cls.__new__(cls)
         route.figure8 = False
+        route.span = span
         route.finish = finish
         distance = np.r_[0, np.cumsum(np.linalg.norm(np.diff(points, axis=0), axis=1))]
         route._set_points(distance, *points.T)
@@ -82,11 +84,12 @@ def projected_distance(route, xy, *, hint=None):
 
 def follower_references(route, lead_xy, *, lead_distance_hint=None):
     """Find a point on the path a nominal Euclidean chord behind each lead pose."""
-    distance = projected_distance(route, lead_xy, hint=lead_distance_hint) - SPAN
+    span = getattr(route, 'span', SPAN)
+    distance = projected_distance(route, lead_xy, hint=lead_distance_hint) - span
     for _ in range(5):
         poses = route_poses(route, distance)
         dx, dy = (lead_xy - poses[:, :2]).T
         separation = np.hypot(dx, dy)
         tangent = dx * np.cos(poses[:, 2]) + dy * np.sin(poses[:, 2])
-        distance += (separation - SPAN) * separation / np.maximum(tangent, 0.5)
+        distance += (separation - span) * separation / np.maximum(tangent, 0.5)
     return route_poses(route, distance)

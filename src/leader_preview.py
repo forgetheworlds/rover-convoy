@@ -3,7 +3,7 @@
 
 import numpy as np
 
-from config import CONDITIONED_CRUISE, DT, MAX_STEER, SLEW, WHEELBASE
+from config import CONDITIONED_CRUISE, DT, MAX_STEER, SLEW, SPAN, WHEELBASE
 from routes import angle_wrap, follower_references
 from vtr3_mpc import STAGES, STEP
 
@@ -38,11 +38,11 @@ def forecast_leader(estimated_state, action, speed_limit, estimate_age):
     return poses
 
 
-def _local_poses(poses, follower_pose):
+def _local_poses(poses, follower_pose, span_offset=0.0):
     dx, dy = (poses[:, :2] - follower_pose[:2]).T
     angle = follower_pose[2]
     return np.column_stack([
-        (np.cos(angle) * dx + np.sin(angle) * dy) / 10,
+        (np.cos(angle) * dx + np.sin(angle) * dy - span_offset) / 10,
         (-np.sin(angle) * dx + np.cos(angle) * dy) / 5,
         angle_wrap(poses[:, 2] - angle),
     ]).ravel()
@@ -55,6 +55,7 @@ def rollout_features(env, leader_action, leader_index):
     plan = forecast_leader(leader, leader_action, env.speed_limit, age)
     follower_pose = _advance(follower[:3], follower[3], follower[4], age)
     route = env.route
+    span = getattr(env, 'span', SPAN)
     hints = None
     if route.figure8:
         leader_pose = _advance(leader[:3], leader[3], leader[4], age)
@@ -62,5 +63,5 @@ def rollout_features(env, leader_action, leader_index):
         xy = np.vstack((leader_pose[:2], plan[:, :2]))
         hints = start + np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=1))
     references = follower_references(route, plan[:, :2], lead_distance_hint=hints)
-    return (np.r_[_local_poses(plan, follower_pose),
+    return (np.r_[_local_poses(plan, follower_pose, span - SPAN),
                   _local_poses(references[REFERENCE_STAGES], follower_pose)], leader_index)

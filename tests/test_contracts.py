@@ -171,7 +171,7 @@ class TestEntryPoints(unittest.TestCase):
         import subprocess
 
         root = Path(__file__).resolve().parents[1]
-        for script in ("field_pair.py", "direction_trials.py", "maneuver.py", "render_convoy.py"):
+        for script in ("field_pair.py", "evaluate.py", "maneuver.py"):
             with self.subTest(script=script):
                 result = subprocess.run(
                     [sys.executable, str(root / "src" / script), "--help"],
@@ -179,13 +179,13 @@ class TestEntryPoints(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_existing_delivery_checkpoint_contract(self):
+    def test_released_pose_only_checkpoint_contract(self):
         from stable_baselines3 import PPO
 
-        path = Path(__file__).resolve().parents[1] / "assets" / "field-forward.zip"
+        path = Path(__file__).resolve().parents[1] / "assets" / "pose-only-policy.zip"
         policy = PPO.load(path, device="cpu")
         from field_pair import OBS_SIZE
-        self.assertEqual(policy.observation_space.shape, (OBS_SIZE,))
+        self.assertEqual(policy.observation_space.shape, (OBS_SIZE + 1,))
 
 
 
