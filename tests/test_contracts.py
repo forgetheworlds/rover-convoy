@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import numpy as np
 
 from config import MAX_SPEED, SPEED_SCENARIOS, Scenario
-from data import ConvoyAction, OBSERVATIONS, observation_names
+from data import ConvoyAction, OBSERVATIONS, describe_observation, observation_names
 from routes import Route
 
 
@@ -23,6 +23,14 @@ class TestInputContracts(unittest.TestCase):
         self.assertEqual(len(observation_names("delivery")), OBSERVATIONS.delivery)
         self.assertEqual(len(observation_names("adaptive_speed")), OBSERVATIONS.adaptive_speed)
         self.assertEqual(observation_names("base")[18], "slider_position")
+
+    def test_observation_debug_view(self):
+        values = np.zeros(OBSERVATIONS.adaptive_speed, dtype=np.float32)
+        values[-1] = 1.0
+        view = describe_observation(values)
+        self.assertEqual(len(view), 41)
+        self.assertEqual(view["follower_curvature_far"], 1.0)
+        self.assertEqual(view["leader_cross_track"], 0.0)
 
     def test_actions_round_trip(self):
         values = np.array([0.5, -0.2, -0.7, 0.1], dtype=np.float32)
@@ -64,6 +72,20 @@ class TestEnvironmentSmoke(unittest.TestCase):
                     self.assertIn("slider", info)
                 finally:
                     env.close()
+
+    def test_extended_input_preserves_first_35_values(self):
+        from environment import CargoConvoy
+
+        scenario = Scenario("flat", speed=3.0)
+        old = CargoConvoy(scenario, delivery=True)
+        new = CargoConvoy(scenario, delivery=True, adaptive_speed=True)
+        try:
+            existing, _ = old.reset(seed=123)
+            extended, _ = new.reset(seed=123)
+            np.testing.assert_array_equal(existing, extended[:35])
+        finally:
+            old.close()
+            new.close()
 
     def test_seed_is_reproducible(self):
         from environment import CargoConvoy
